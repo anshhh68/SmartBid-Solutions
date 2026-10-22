@@ -1,0 +1,262 @@
+// This is your Prisma schema file
+// Learn more at: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum EnquiryStatus {
+  NEW
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+enum TenderStatus {
+  ACTIVE
+  CLOSED
+  UPCOMING
+  AWARDED
+  CANCELLED
+}
+
+model User {
+  id            String        @id @default(cuid())
+  name          String
+  email         String        @unique
+  password      String
+  phone         String?
+  role          Role          @default(USER)
+  isActive      Boolean       @default(true)
+  emailVerified Boolean       @default(false)
+  resetToken    String?
+  resetExpiry   DateTime?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  savedTenders  SavedTender[]
+  tenderAlerts  TenderAlert[]
+  enquiries     Enquiry[]
+  auditLogs     AuditLog[]
+  subscription  Subscription?
+
+  @@map("users")
+}
+
+model TenderCategory {
+  id      String   @id @default(cuid())
+  name    String   @unique
+  slug    String   @unique
+  icon    String?
+  tenders Tender[]
+
+  @@map("tender_categories")
+}
+
+model Tender {
+  id            String         @id @default(cuid())
+  title         String
+  refNo         String?        @unique
+  department    String
+  categoryId    String?
+  category      TenderCategory? @relation(fields: [categoryId], references: [id])
+  location      String
+  state         String?
+  value         Float?
+  valueCurrency String         @default("INR")
+  emd           Float?
+  fee           Float?
+  status        TenderStatus   @default(ACTIVE)
+  publishedAt   DateTime?
+  openingDate   DateTime?
+  closingDate   DateTime
+  preBidDate    DateTime?
+  tenderType    String?
+  eligibility   String?
+  description   String?
+  documents     Json?          // Array of {name, url} objects
+  sourceUrl     String?
+  source        String?        // e.g. "GeM", "CPPP", "Manual"
+  isPublished   Boolean        @default(false)
+  viewCount     Int            @default(0)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  savedBy       SavedTender[]
+
+  @@index([status, closingDate])
+  @@index([categoryId])
+  @@index([location])
+  @@index([isPublished])
+  @@map("tenders")
+}
+
+model SavedTender {
+  id        String   @id @default(cuid())
+  userId    String
+  tenderId  String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tender    Tender   @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, tenderId])
+  @@map("saved_tenders")
+}
+
+model TenderAlert {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keywords   String[]
+  categories String[]
+  locations  String[]
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("tender_alerts")
+}
+
+model Enquiry {
+  id          String        @id @default(cuid())
+  userId      String?
+  user        User?         @relation(fields: [userId], references: [id])
+  name        String
+  email       String
+  phone       String?
+  service     String?
+  subject     String?
+  message     String
+  status      EnquiryStatus @default(NEW)
+  assignedTo  String?
+  notes       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@map("enquiries")
+}
+
+model Service {
+  id          String  @id @default(cuid())
+  title       String
+  slug        String  @unique
+  shortDesc   String
+  description String
+  icon        String
+  features    String[]
+  isActive    Boolean @default(true)
+  order       Int     @default(0)
+
+  @@map("services")
+}
+
+model Plan {
+  id          String         @id @default(cuid())
+  name        String
+  slug        String         @unique
+  price       Float
+  period      String         @default("monthly")  // monthly, yearly, one-time
+  features    String[]
+  isPopular   Boolean        @default(false)
+  isActive    Boolean        @default(true)
+  order       Int            @default(0)
+  subscriptions Subscription[]
+
+  @@map("plans")
+}
+
+model Subscription {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  planId    String
+  user      User     @relation(fields: [userId], references: [id])
+  plan      Plan     @relation(fields: [planId], references: [id])
+  startDate DateTime @default(now())
+  endDate   DateTime
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@map("subscriptions")
+}
+
+model Testimonial {
+  id          String  @id @default(cuid())
+  name        String
+  company     String?
+  designation String?
+  rating      Int     @default(5)
+  content     String
+  avatar      String?
+  isPublished Boolean @default(true)
+  order       Int     @default(0)
+
+  @@map("testimonials")
+}
+
+model Faq {
+  id        String  @id @default(cuid())
+  question  String
+  answer    String
+  category  String  @default("general")
+  order     Int     @default(0)
+  isActive  Boolean @default(true)
+
+  @@map("faqs")
+}
+
+model SiteSetting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+
+  @@map("site_settings")
+}
+
+model Banner {
+  id       String  @id @default(cuid())
+  title    String
+  subtitle String?
+  ctaText  String?
+  ctaUrl   String?
+  image    String?
+  isActive Boolean @default(true)
+  order    Int     @default(0)
+
+  @@map("banners")
+}
+
+model Page {
+  id          String   @id @default(cuid())
+  slug        String   @unique
+  title       String
+  metaTitle   String?
+  metaDesc    String?
+  content     String
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("pages")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@map("audit_logs")
+}
