@@ -2,11 +2,9 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../utils/prisma');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { logger } = require('../utils/logger');
-
-const prisma = new PrismaClient();
 
 // Public customer registration is disabled. Staff accounts are created internally.
 router.post('/register', asyncHandler(async (_req, res) => {

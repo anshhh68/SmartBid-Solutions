@@ -1,14 +1,12 @@
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../utils/prisma');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const multer = require('multer');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { syncLiveTenders } = require('../services/tenderSyncService');
-
-const prisma = new PrismaClient();
 
 // File upload config
 const storage = multer.diskStorage({

@@ -1,9 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../utils/prisma');
 const { asyncHandler } = require('../middleware/errorHandler');
-
-const prisma = new PrismaClient();
 
 // GET /api/public/settings — Site settings for frontend
 router.get('/settings', asyncHandler(async (req, res) => {

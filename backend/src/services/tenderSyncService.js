@@ -1,7 +1,5 @@
-const { PrismaClient } = require('@prisma/client');
+const prisma = require('../utils/prisma');
 const { logger } = require('../utils/logger');
-
-const prisma = new PrismaClient();
 
 /**
  * Intelligent category classifier based on bid titles and departments
