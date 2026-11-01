@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -6,6 +7,7 @@ import api from '../../lib/api';
 import toast from 'react-hot-toast';
 import { Phone, Mail, MapPin, Clock, MessageCircle, MessageSquare, CheckCircle } from 'lucide-react';
 import { EMAILS } from '../../lib/constants';
+import FeedbackForm from '../../components/forms/FeedbackForm';
 
 const schema = z.object({
   name: z.string().min(2, 'Name is required'),
@@ -30,6 +32,12 @@ const SERVICES = [
 
 export default function Contact() {
   const [submitted, setSubmitted] = useState(false);
+  const { hash } = useLocation();
+
+  // React Router doesn't scroll to #anchors (e.g. the footer's /contact#feedback link)
+  useEffect(() => {
+    if (hash) document.getElementById(hash.slice(1))?.scrollIntoView({ behavior: 'smooth' });
+  }, [hash]);
 
   const { register, handleSubmit, formState: { errors, isSubmitting }, reset } = useForm<FormData>({
     resolver: zodResolver(schema),
@@ -52,7 +60,7 @@ export default function Contact() {
         <div className="max-w-6xl mx-auto px-4">
           <h1 className="font-display text-4xl">Write to the desk</h1>
           <p className="mt-3 max-w-xl text-paper/70">
-            Call or send the form anytime. Our Ahmedabad desk is available 24/7 for urgent bid queries and deadlines.
+            Call or send the form anytime. Our desk serves clients across All India, 24/7, for urgent bid queries and deadlines.
           </p>
         </div>
       </div>
@@ -75,16 +83,12 @@ export default function Contact() {
                       className="flex items-center gap-2 text-sm font-semibold text-ink hover:text-stamp transition-colors"
                     >
                       +91 70162 35257
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-ochre bg-ochre/10 px-1.5 py-0.5 rounded border border-ochre/30">
-                        Default
-                      </span>
                     </a>
                     <a
                       href="tel:+918511722588"
                       className="flex items-center gap-2 text-xs font-medium text-ink-soft hover:text-stamp transition-colors"
                     >
                       +91 85117 22588
-                      <span className="text-[10px] text-ink-soft/70">Alternate</span>
                     </a>
                   </div>
                 </div>
@@ -105,7 +109,7 @@ export default function Contact() {
                   </div>
                   <div>
                     <p className="text-xs text-ink-soft mb-0.5">Location</p>
-                    <p className="text-sm font-semibold text-ink">Ahmedabad, Gujarat, India</p>
+                    <p className="text-sm font-semibold text-ink">All India</p>
                   </div>
                 </div>
 
@@ -235,6 +239,12 @@ export default function Contact() {
               </div>
             )}
           </div>
+        </div>
+
+        <div id="feedback" className="mt-10 bg-white rounded-2xl border border-rule p-8 scroll-mt-24 shadow-sm">
+          <h2 className="font-bold text-ink text-xl mb-1">Share Your Feedback</h2>
+          <p className="text-sm text-ink-soft mb-6">Worked with us? Rate your experience and tell us how we can improve.</p>
+          <FeedbackForm />
         </div>
       </div>
     </div>

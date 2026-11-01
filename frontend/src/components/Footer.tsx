@@ -25,7 +25,7 @@ const Footer = () => {
             />
           </Link>
           <p className="text-sm leading-relaxed text-paper/85">
-            GeM, e-tender, DSC, and documentation desk in Ahmedabad. We prepare and file bids. You run the business.
+            GeM, e-tender, DSC, and documentation desk serving All India. We prepare and file bids. You run the business.
           </p>
           <Link
             to="/contact"
@@ -51,6 +51,7 @@ const Footer = () => {
             <li><Link to="/about" className="hover:text-paper">About</Link></li>
             <li><Link to="/faq" className="hover:text-paper">FAQ</Link></li>
             <li><Link to="/contact" className="hover:text-paper">Contact</Link></li>
+            <li><Link to="/contact#feedback" className="hover:text-paper">Feedback</Link></li>
             <li><Link to="/privacy-policy" className="hover:text-paper">Privacy</Link></li>
             <li><Link to="/terms-and-conditions" className="hover:text-paper">Terms</Link></li>
           </ul>
@@ -60,12 +61,12 @@ const Footer = () => {
           <div className="mt-3 text-sm space-y-0.5">
             <p>
               <a href="tel:+917016235257" className="hover:text-paper">
-                +91 70162 35257 <span className="text-[10px] text-ochre font-semibold">(Default)</span>
+                +91 70162 35257
               </a>
             </p>
             <p>
               <a href="tel:+918511722588" className="text-paper/60 hover:text-paper text-xs">
-                +91 85117 22588 <span className="text-[10px] text-paper/40">(Alternate)</span>
+                +91 85117 22588
               </a>
             </p>
           </div>
@@ -73,7 +74,7 @@ const Footer = () => {
         </div>
       </div>
       <div className="border-t border-white/10 px-4 py-4 text-center text-[11px] tracking-wide text-paper/50">
-        © {year} SmartBid Solutions, Ahmedabad. Government bidding support, not a government portal.
+        © {year} SmartBid Solutions · Serving All India. Government bidding support, not a government portal.
       </div>
     </footer>
   );

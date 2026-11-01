@@ -23,6 +23,80 @@ const upload = multer({
   }
 });
 
+// Keep only fields the Prisma model knows about, so stray form fields can't crash a save
+const pick = (obj = {}, keys) => Object.fromEntries(keys.filter(k => obj[k] !== undefined).map(k => [k, obj[k]]));
+const slugify = (s = '') => s.toString().toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+const toInt = (v, d = 0) => (v === undefined || v === '' || isNaN(parseInt(v)) ? d : parseInt(v));
+
+const CATEGORY_FIELDS = ['name', 'slug', 'description', 'icon'];
+const SERVICE_FIELDS = ['title', 'slug', 'shortDesc', 'description', 'icon', 'features', 'isActive', 'order'];
+const PLAN_FIELDS = ['name', 'slug', 'price', 'period', 'description', 'features', 'isPopular', 'isActive', 'order'];
+const TESTIMONIAL_FIELDS = ['name', 'company', 'designation', 'rating', 'content', 'avatar', 'isPublished', 'order'];
+const FAQ_FIELDS = ['question', 'answer', 'category', 'order', 'isActive'];
+const PAGE_FIELDS = ['title', 'content', 'metaTitle', 'metaDesc', 'isPublished'];
+const TENDER_FIELDS = ['title', 'refNo', 'department', 'location', 'state', 'value', 'valueCurrency', 'emd', 'fee',
+  'status', 'openingDate', 'closingDate', 'preBidDate', 'tenderType', 'eligibility', 'description', 'sourceUrl',
+  'source', 'isPublished'];
+
+function serviceData(body, isCreate) {
+  const data = pick(body, SERVICE_FIELDS);
+  if (data.order !== undefined) data.order = toInt(data.order);
+  if (data.slug !== undefined || isCreate) data.slug = slugify(data.slug || data.title);
+  if (isCreate) {
+    data.description = data.description || '';
+    data.shortDesc = data.shortDesc || data.description.split(/(?<=\.)\s/)[0].slice(0, 200) || data.title;
+    data.icon = data.icon || 'ShieldCheck';
+    data.features = Array.isArray(data.features) ? data.features : [];
+  }
+  return data;
+}
+
+function planData(body, isCreate) {
+  // Frontend sends billingPeriod; Prisma field is period
+  const data = pick({ ...body, period: body.billingPeriod || body.period }, PLAN_FIELDS);
+  if (data.price !== undefined) data.price = parseFloat(data.price) || 0;
+  if (data.order !== undefined) data.order = toInt(data.order);
+  if (data.features !== undefined && !Array.isArray(data.features)) data.features = [];
+  if (isCreate) {
+    data.slug = slugify(data.slug || data.name);
+    data.period = data.period || 'monthly';
+    data.features = data.features || [];
+  }
+  return data;
+}
+
+function testimonialData(body) {
+  // Frontend historically sent `role`; Prisma field is designation
+  const data = pick({ ...body, designation: body.designation ?? body.role }, TESTIMONIAL_FIELDS);
+  if (data.rating !== undefined) data.rating = Math.min(5, Math.max(1, toInt(data.rating, 5)));
+  if (data.order !== undefined) data.order = toInt(data.order);
+  return data;
+}
+
+function categoryData(body, isCreate) {
+  const data = pick(body, CATEGORY_FIELDS);
+  if (data.slug !== undefined || isCreate) data.slug = slugify(data.slug || data.name);
+  return data;
+}
+
+function faqData(body) {
+  const data = pick(body, FAQ_FIELDS);
+  if (data.order !== undefined) data.order = toInt(data.order);
+  return data;
+}
+
+function tenderData(body) {
+  const data = pick(body, TENDER_FIELDS);
+  for (const k of ['value', 'emd', 'fee']) {
+    if (data[k] !== undefined) data[k] = data[k] === '' || data[k] === null ? null : parseFloat(data[k]);
+  }
+  for (const k of ['openingDate', 'closingDate', 'preBidDate']) {
+    if (data[k] !== undefined) data[k] = data[k] ? new Date(data[k]) : null;
+  }
+  if (data.refNo === '') data.refNo = null;
+  return data;
+}
+
 // All admin routes require authentication + admin role
 router.use(authenticate, requireAdmin);
 
@@ -84,18 +158,17 @@ router.get('/tenders', asyncHandler(async (req, res) => {
 }));
 
 router.post('/tenders', asyncHandler(async (req, res) => {
-  const { categoryId, documents, ...rest } = req.body;
-  delete rest.id;
-  delete rest.createdAt;
-  delete rest.updatedAt;
-  delete rest.viewCount;
-  delete rest.category;
-  delete rest._count;
-  delete rest.savedBy;
+  const { categoryId, documents } = req.body;
+  const rest = tenderData(req.body);
+  if (!rest.title || !rest.closingDate) {
+    return res.status(400).json({ error: 'Tender title and closing date are required' });
+  }
 
   const tender = await prisma.tender.create({
     data: {
       ...rest,
+      department: rest.department || 'Not specified',
+      location: rest.location || 'Pan India',
       categoryId: categoryId || null,
       documents: documents || [],
       publishedAt: rest.isPublished ? new Date() : null,
@@ -119,22 +192,20 @@ router.get('/tenders/:id', asyncHandler(async (req, res) => {
 }));
 
 router.put('/tenders/:id', asyncHandler(async (req, res) => {
-  const { categoryId, documents, ...rest } = req.body;
-  delete rest.id;
-  delete rest.createdAt;
-  delete rest.updatedAt;
-  delete rest.viewCount;
-  delete rest.category;
-  delete rest._count;
-  delete rest.savedBy;
+  const { categoryId, documents } = req.body;
+  const rest = tenderData(req.body);
+  const existing = await prisma.tender.findUnique({ where: { id: req.params.id }, select: { publishedAt: true } });
+  if (!existing) return res.status(404).json({ error: 'Tender not found' });
 
   const tender = await prisma.tender.update({
     where: { id: req.params.id },
     data: {
       ...rest,
-      categoryId: categoryId || null,
-      documents: documents || [],
-      publishedAt: rest.isPublished ? (rest.publishedAt || new Date()) : null,
+      ...(categoryId !== undefined && { categoryId: categoryId || null }),
+      ...(documents !== undefined && { documents: documents || [] }),
+      ...(rest.isPublished !== undefined && {
+        publishedAt: rest.isPublished ? (existing.publishedAt || new Date()) : null,
+      }),
     }
   });
 
@@ -156,6 +227,9 @@ router.delete('/tenders/:id', asyncHandler(async (req, res) => {
 // Bulk publish/unpublish
 router.post('/tenders/bulk-publish', asyncHandler(async (req, res) => {
   const { ids, publish } = req.body;
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: 'Select at least one tender' });
+  }
   await prisma.tender.updateMany({
     where: { id: { in: ids } },
     data: { isPublished: publish, publishedAt: publish ? new Date() : null }
@@ -174,7 +248,7 @@ router.post('/tenders/sync-live', asyncHandler(async (req, res) => {
       metadata: { synced: result.synced, skipped: result.skipped }
     }
   });
-  res.json({ message: `Successfully synced ${result.synced} live tenders from GeM & State portals`, ...result });
+  res.json({ message: `Synced ${result.synced} live tenders from GeM (${result.created} new, ${result.updated} updated)`, ...result });
 }));
 
 // Import tenders from JSON body (CSV processing done client-side)
@@ -185,16 +259,38 @@ router.post('/tenders/import', asyncHandler(async (req, res) => {
   }
 
   let created = 0, skipped = 0;
-  for (const t of tenders) {
+  const errors = [];
+  for (const [i, t] of tenders.entries()) {
     try {
-      await prisma.tender.create({ data: { ...t, source: t.source || 'Import' } });
+      const data = tenderData(t);
+      if (!data.title || !data.closingDate || isNaN(data.closingDate)) {
+        throw new Error('title and a valid closingDate are required');
+      }
+      await prisma.tender.create({
+        data: {
+          ...data,
+          department: data.department || 'Not specified',
+          location: data.location || 'Pan India',
+          categoryId: t.categoryId || null,
+          documents: Array.isArray(t.documents) ? t.documents : [],
+          source: data.source || 'Import',
+          isPublished: data.isPublished ?? true,
+          publishedAt: data.isPublished === false ? null : new Date(),
+        }
+      });
       created++;
-    } catch {
+    } catch (err) {
       skipped++;
+      if (errors.length < 5) {
+        errors.push(`#${i + 1}: ${err.code === 'P2002' ? 'duplicate refNo' : err.message.split('\n').pop()}`);
+      }
     }
   }
 
-  res.json({ message: `Imported ${created} tenders, skipped ${skipped} duplicates` });
+  res.json({
+    message: `Imported ${created} tenders${skipped ? `, skipped ${skipped} (${errors.join('; ')})` : ''}`,
+    created, skipped,
+  });
 }));
 
 // ═══════════════════ ENQUIRY MANAGEMENT ═══════════════════
@@ -222,7 +318,11 @@ router.put('/enquiries/:id', asyncHandler(async (req, res) => {
   const { status, assignedTo, notes } = req.body;
   const enquiry = await prisma.enquiry.update({
     where: { id: req.params.id },
-    data: { status, assignedTo, notes }
+    data: {
+      ...(status && { status }),
+      ...(assignedTo !== undefined && { assignedTo: assignedTo || null }),
+      ...(notes !== undefined && { notes: notes || null }),
+    }
   });
   res.json({ enquiry });
 }));
@@ -263,9 +363,12 @@ router.get('/users', asyncHandler(async (req, res) => {
 
 router.patch('/users/:id/status', asyncHandler(async (req, res) => {
   const { isActive } = req.body;
+  if (req.params.id === req.user.id && isActive === false) {
+    return res.status(400).json({ error: 'You cannot deactivate your own account' });
+  }
   const user = await prisma.user.update({
     where: { id: req.params.id },
-    data: { isActive },
+    data: { isActive: Boolean(isActive) },
     select: { id: true, name: true, email: true, isActive: true }
   });
   res.json({ user });
@@ -280,14 +383,14 @@ router.get('/settings', asyncHandler(async (req, res) => {
 }));
 
 router.put('/settings', asyncHandler(async (req, res) => {
-  const updates = req.body; // { key: value }
-  for (const [key, value] of Object.entries(updates)) {
-    await prisma.siteSetting.upsert({
+  const updates = req.body || {}; // { key: value }
+  await prisma.$transaction(
+    Object.entries(updates).map(([key, value]) => prisma.siteSetting.upsert({
       where: { key },
-      update: { value: String(value) },
-      create: { key, value: String(value) }
-    });
-  }
+      update: { value: String(value ?? '') },
+      create: { key, value: String(value ?? '') }
+    }))
+  );
   await prisma.auditLog.create({
     data: { userId: req.user.id, action: 'UPDATE', entity: 'SiteSettings' }
   });
@@ -301,12 +404,13 @@ router.get('/services', asyncHandler(async (req, res) => {
 }));
 
 router.post('/services', asyncHandler(async (req, res) => {
-  const service = await prisma.service.create({ data: req.body });
+  if (!req.body.title) return res.status(400).json({ error: 'Service title is required' });
+  const service = await prisma.service.create({ data: serviceData(req.body, true) });
   res.status(201).json({ service });
 }));
 
 router.put('/services/:id', asyncHandler(async (req, res) => {
-  const service = await prisma.service.update({ where: { id: req.params.id }, data: req.body });
+  const service = await prisma.service.update({ where: { id: req.params.id }, data: serviceData(req.body, false) });
   res.json({ service });
 }));
 
@@ -322,19 +426,15 @@ router.get('/plans', asyncHandler(async (req, res) => {
 }));
 
 router.post('/plans', asyncHandler(async (req, res) => {
-  // Normalize billingPeriod (sent by frontend) → period (Prisma field name)
-  const { billingPeriod, ...rest } = req.body;
-  const plan = await prisma.plan.create({
-    data: { ...rest, period: billingPeriod || rest.period || 'monthly' }
-  });
+  if (!req.body.name) return res.status(400).json({ error: 'Plan name is required' });
+  const plan = await prisma.plan.create({ data: planData(req.body, true) });
   res.status(201).json({ plan });
 }));
 
 router.put('/plans/:id', asyncHandler(async (req, res) => {
-  const { billingPeriod, ...rest } = req.body;
   const plan = await prisma.plan.update({
     where: { id: req.params.id },
-    data: { ...rest, ...(billingPeriod && { period: billingPeriod }) }
+    data: planData(req.body, false)
   });
   res.json({ plan });
 }));
@@ -354,12 +454,13 @@ router.get('/testimonials', asyncHandler(async (req, res) => {
 }));
 
 router.post('/testimonials', asyncHandler(async (req, res) => {
-  const t = await prisma.testimonial.create({ data: req.body });
+  if (!req.body.name || !req.body.content) return res.status(400).json({ error: 'Name and content are required' });
+  const t = await prisma.testimonial.create({ data: testimonialData(req.body) });
   res.status(201).json({ testimonial: t });
 }));
 
 router.put('/testimonials/:id', asyncHandler(async (req, res) => {
-  const t = await prisma.testimonial.update({ where: { id: req.params.id }, data: req.body });
+  const t = await prisma.testimonial.update({ where: { id: req.params.id }, data: testimonialData(req.body) });
   res.json({ testimonial: t });
 }));
 
@@ -375,12 +476,13 @@ router.get('/faqs', asyncHandler(async (req, res) => {
 }));
 
 router.post('/faqs', asyncHandler(async (req, res) => {
-  const faq = await prisma.faq.create({ data: req.body });
+  if (!req.body.question || !req.body.answer) return res.status(400).json({ error: 'Question and answer are required' });
+  const faq = await prisma.faq.create({ data: faqData(req.body) });
   res.status(201).json({ faq });
 }));
 
 router.put('/faqs/:id', asyncHandler(async (req, res) => {
-  const faq = await prisma.faq.update({ where: { id: req.params.id }, data: req.body });
+  const faq = await prisma.faq.update({ where: { id: req.params.id }, data: faqData(req.body) });
   res.json({ faq });
 }));
 
@@ -409,16 +511,19 @@ router.get('/categories', asyncHandler(async (req, res) => {
 }));
 
 router.post('/categories', asyncHandler(async (req, res) => {
-  const cat = await prisma.tenderCategory.create({ data: req.body });
+  if (!req.body.name) return res.status(400).json({ error: 'Category name is required' });
+  const cat = await prisma.tenderCategory.create({ data: categoryData(req.body, true) });
   res.status(201).json({ category: cat });
 }));
 
 router.put('/categories/:id', asyncHandler(async (req, res) => {
-  const cat = await prisma.tenderCategory.update({ where: { id: req.params.id }, data: req.body });
+  const cat = await prisma.tenderCategory.update({ where: { id: req.params.id }, data: categoryData(req.body, false) });
   res.json({ category: cat });
 }));
 
 router.delete('/categories/:id', asyncHandler(async (req, res) => {
+  // Detach tenders first so the category can be removed without a foreign-key error
+  await prisma.tender.updateMany({ where: { categoryId: req.params.id }, data: { categoryId: null } });
   await prisma.tenderCategory.delete({ where: { id: req.params.id } });
   res.json({ message: 'Category deleted' });
 }));
@@ -430,7 +535,7 @@ router.get('/pages', asyncHandler(async (req, res) => {
 }));
 
 router.put('/pages/:id', asyncHandler(async (req, res) => {
-  const page = await prisma.page.update({ where: { id: req.params.id }, data: req.body });
+  const page = await prisma.page.update({ where: { id: req.params.id }, data: pick(req.body, PAGE_FIELDS) });
   res.json({ page });
 }));
 

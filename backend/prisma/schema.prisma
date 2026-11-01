@@ -57,6 +57,7 @@ model TenderCategory {
   id      String   @id @default(cuid())
   name    String   @unique
   slug    String   @unique
+  description String?
   icon    String?
   tenders Tender[]
 
@@ -165,6 +166,7 @@ model Plan {
   slug        String         @unique
   price       Float
   period      String         @default("monthly")  // monthly, yearly, one-time
+  description String?
   features    String[]
   isPopular   Boolean        @default(false)
   isActive    Boolean        @default(true)

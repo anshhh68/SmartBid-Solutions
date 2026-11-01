@@ -13,6 +13,7 @@ export default function AdminServices() {
 
   const [title, setTitle] = useState('');
   const [slug, setSlug] = useState('');
+  const [shortDesc, setShortDesc] = useState('');
   const [description, setDescription] = useState('');
   const [icon, setIcon] = useState('ShieldCheck');
   const [order, setOrder] = useState('0');
@@ -59,6 +60,7 @@ export default function AdminServices() {
       setEditingService(serv);
       setTitle(serv.title);
       setSlug(serv.slug);
+      setShortDesc(serv.shortDesc || '');
       setDescription(serv.description || '');
       setIcon(serv.icon || 'ShieldCheck');
       setOrder(String(serv.order || 0));
@@ -66,6 +68,7 @@ export default function AdminServices() {
       setEditingService(null);
       setTitle('');
       setSlug('');
+      setShortDesc('');
       setDescription('');
       setIcon('ShieldCheck');
       setOrder('0');
@@ -87,6 +90,7 @@ export default function AdminServices() {
     saveMutation.mutate({
       title,
       slug,
+      shortDesc,
       description,
       icon,
       order: parseInt(order) || 0,
@@ -235,6 +239,17 @@ export default function AdminServices() {
                   value={icon}
                   onChange={(e) => setIcon(e.target.value)}
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Short Description (shown on Services page)</label>
+                <input
+                  type="text"
+                  placeholder="One-line summary of this service"
+                  value={shortDesc}
+                  onChange={(e) => setShortDesc(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
                 />
               </div>
 

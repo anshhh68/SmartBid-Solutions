@@ -1,225 +1,368 @@
 const prisma = require('../utils/prisma');
 const { logger } = require('../utils/logger');
 
+const GEM_BASE = 'https://bidplus.gem.gov.in';
+const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const REQUEST_TIMEOUT = 20000;
+const MAX_RETRIES = 3;
+
+// Ordered by priority; word boundaries avoid false hits like "car" in "cartridge"
+const CATEGORY_RULES = [
+  ['it-technology', /\b(software|computers?|laptops?|desktops?|printers?|cctv|servers?|network(ing)?|ups|scanners?|monitors?|hardware|hard disk|ssd|nvr|surveillance|camera|network switch|router|tablet pc|operating system|windows \d+|ms office|antivirus|it)\b/i],
+  ['medical', /\b(medical|hospital|medicines?|drugs?|infusion|ventilators?|health|pharma\w*|tablets?|capsules?|injections?|surgical|syrup|drops|diagnostic|reagents?)\b/i],
+  ['printing', /\b(printing|paper|stationery|booklets?|answer sheets?|cartridges?|toner)\b/i],
+  ['energy', /\b(solar|power|transformers?|cables?|electric\w*|energy|generators?|dg set|batter(y|ies)|lighting|luminaires?|led lights?)\b/i],
+  ['construction', /\b(roads?|bridges?|drainage|civil|buildings?|construction|concrete|pipes?|asphalt|rcc|cement|painting|paint|repair works?)\b/i],
+  ['transportation', /\b(vehicles?|bus(es)?|transport\w*|trucks?|cars?|cng|taxi|hiring of vehicles?|fuel|tyres?)\b/i],
+  ['agriculture', /\b(agricultur\w*|fertili[sz]ers?|seeds?|irrigation|crops?|pesticides?)\b/i],
+  ['consultancy', /\b(consult\w*|audit|facility management|housekeeping|manpower|counsel\w*|outsourc\w*)\b/i],
+  ['defence', /\b(defence|military|army|navy|air force|ammunition|weapons?|bollards?|bullet ?proof)\b/i],
+];
+
 /**
- * Intelligent category classifier based on bid titles and departments
+ * Intelligent category classifier: the bid title decides first, the department only as a fallback
+ * (otherwise everything bought by e.g. the Department of Military Affairs becomes "defence").
  */
 function classifyCategory(title = '', dept = '', catMap = {}) {
-  const text = `${title} ${dept}`.toLowerCase();
-
-  if (text.match(/software|computer|laptop|printer|cctv|server|network|ups|scanner|display|led monitor|it |hardware/i)) {
-    return catMap['it-technology'];
+  for (const text of [title, dept]) {
+    for (const [slug, re] of CATEGORY_RULES) {
+      if (re.test(text) && catMap[slug]) return catMap[slug];
+    }
   }
-  if (text.match(/medical|hospital|medicine|drug|infusion|ventilator|doctor|health|pharma|tablet|capsule|surgical/i)) {
-    return catMap['medical'];
-  }
-  if (text.match(/defence|military|army|navy|air force|police|security|bollard|weapon|ammunition|uniform/i)) {
-    return catMap['defence'];
-  }
-  if (text.match(/solar|power|transformer|cable|electric|energy|generator|battery|lighting|luminaire/i)) {
-    return catMap['energy'];
-  }
-  if (text.match(/road|bridge|drainage|civil|building|construction|concrete|pipe|asphalt|rcc/i)) {
-    return catMap['construction'] || catMap['civil'];
-  }
-  if (text.match(/vehicle|bus|transport|truck|car|cng|lease|fuel|tyre/i)) {
-    return catMap['transportation'];
-  }
-  if (text.match(/print|paper|stationery|booklet|answer sheet|cartridge/i)) {
-    return catMap['printing'];
-  }
-  if (text.match(/agriculture|fertilizer|seed|irrigation|crop/i)) {
-    return catMap['agriculture'];
-  }
-  if (text.match(/consult|audit|facility management|housekeeping|manpower|counsel/i)) {
-    return catMap['consultancy'];
-  }
-
   return catMap['supply'] || null;
 }
 
+const INDIAN_STATES = [
+  'Andhra Pradesh', 'Arunachal Pradesh', 'Assam', 'Bihar', 'Chhattisgarh', 'Goa', 'Gujarat', 'Haryana',
+  'Himachal Pradesh', 'Jharkhand', 'Karnataka', 'Kerala', 'Madhya Pradesh', 'Maharashtra', 'Manipur',
+  'Meghalaya', 'Mizoram', 'Nagaland', 'Odisha', 'Punjab', 'Rajasthan', 'Sikkim', 'Tamil Nadu', 'Telangana',
+  'Tripura', 'Uttar Pradesh', 'Uttarakhand', 'West Bengal', 'Andaman and Nicobar', 'Chandigarh',
+  'Dadra and Nagar Haveli', 'Daman and Diu', 'Delhi', 'Jammu and Kashmir', 'Ladakh', 'Lakshadweep', 'Puducherry',
+];
+
+// State-government buyers carry the state name in the department, e.g. "Revenue Department Gujarat"
+function detectState(...texts) {
+  const text = texts.join(' ').toLowerCase().replace(/&/g, 'and');
+  return INDIAN_STATES.find(s => text.includes(s.toLowerCase())) || null;
+}
+
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// GeM returns IST wall-clock times labelled as UTC ("...Z"); shift to real UTC
+const IST_OFFSET_MS = 330 * 60000;
+const gemDate = (v) => (v ? new Date(new Date(v).getTime() - IST_OFFSET_MS) : null);
+
 /**
- * Fetch real ongoing bids directly from GeM Portal (bidplus.gem.gov.in)
+ * Run fn with retries and linear backoff
  */
-async function fetchDirectFromGeM(maxPages = 3) {
-  try {
-    logger.info('📡 Connecting to GeM portal (bidplus.gem.gov.in)...');
-    
-    // Step 1: Initial GET to acquire session cookies and CSRF token
-    const initialRes = await fetch('https://bidplus.gem.gov.in/all-bids', {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      },
-      signal: AbortSignal.timeout(10000)
-    });
-
-    if (!initialRes.ok) {
-      throw new Error(`GeM portal responded with HTTP ${initialRes.status}`);
+async function withRetry(label, fn) {
+  let lastErr;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      logger.warn(`⚠️ ${label} failed (attempt ${attempt}/${MAX_RETRIES}): ${err.message}`);
+      if (attempt < MAX_RETRIES) await sleep(1500 * attempt);
     }
-
-    const html = await initialRes.text();
-    const cookies = initialRes.headers.getSetCookie 
-      ? initialRes.headers.getSetCookie().join('; ') 
-      : (initialRes.headers.get('set-cookie') || '');
-
-    const csrfMatch = html.match(/['"]csrf_bd_gem_nk['"]\s*:\s*['"]([a-f0-9]+)['"]/i)
-      || html.match(/name=['"]csrf_bd_gem_nk['"]\s+value=['"]([a-f0-9]+)['"]/i);
-
-    if (!csrfMatch) {
-      throw new Error('Could not extract CSRF security token from GeM portal');
-    }
-
-    const csrfToken = csrfMatch[1];
-    logger.info('🔐 Acquired GeM portal session & security token.');
-
-    const allDocs = [];
-
-    // Step 2: Fetch pages of ongoing bids (both latest and active)
-    for (let page = 1; page <= maxPages; page++) {
-      const postData = {
-        page,
-        param: { searchBid: "", searchType: "fullText" },
-        filter: {
-          bidStatusType: "ongoing_bids",
-          byType: "all",
-          highBidValue: "",
-          byEndDate: { from: "", to: "" },
-          sort: page === 1 ? "Bid-End-Date-Latest" : "Bid-End-Date-Oldest"
-        }
-      };
-
-      const body = new URLSearchParams();
-      body.append('payload', JSON.stringify(postData));
-      body.append('csrf_bd_gem_nk', csrfToken);
-
-      const apiRes = await fetch('https://bidplus.gem.gov.in/all-bids-data', {
-        method: 'POST',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json, text/javascript, */*; q=0.01',
-          'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-          'X-Requested-With': 'XMLHttpRequest',
-          'Referer': 'https://bidplus.gem.gov.in/all-bids',
-          'Cookie': cookies,
-        },
-        body: body.toString(),
-        signal: AbortSignal.timeout(10000)
-      });
-
-      if (!apiRes.ok) continue;
-
-      const data = await apiRes.json();
-      const docs = data?.response?.response?.docs || [];
-      allDocs.push(...docs);
-    }
-
-    logger.info(`📥 Retrieved ${allDocs.length} genuine ongoing bids directly from GeM.`);
-    return allDocs;
-  } catch (err) {
-    logger.warn(`⚠️ Direct GeM fetch encountered an issue: ${err.message}.`);
-    return [];
   }
+  throw lastErr;
+}
+
+/**
+ * Open a GeM session: returns cookie header + CSRF token
+ */
+async function openGemSession() {
+  const res = await fetch(`${GEM_BASE}/all-bids`, {
+    headers: {
+      'User-Agent': USER_AGENT,
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    },
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT)
+  });
+  if (!res.ok) throw new Error(`GeM portal responded with HTTP ${res.status}`);
+
+  const html = await res.text();
+  // Only send back name=value pairs, not cookie attributes (path, domain, expires...)
+  const cookies = (res.headers.getSetCookie?.() || [])
+    .map(c => c.split(';')[0])
+    .join('; ');
+
+  const csrfMatch = html.match(/['"]csrf_bd_gem_nk['"]\s*[:,]\s*['"]([a-f0-9]+)['"]/i)
+    || html.match(/name=['"]csrf_bd_gem_nk['"]\s+value=['"]([a-f0-9]+)['"]/i);
+  if (!csrfMatch) throw new Error('Could not extract CSRF security token from GeM portal');
+
+  return { cookies, csrfToken: csrfMatch[1] };
+}
+
+async function fetchGemPage(session, page) {
+  const payload = {
+    page,
+    param: { searchBid: '', searchType: 'fullText' },
+    filter: {
+      bidStatusType: 'ongoing_bids',
+      byType: 'all',
+      highBidValue: '',
+      byEndDate: { from: '', to: '' },
+      sort: 'Bid-Start-Date-Latest'
+    }
+  };
+
+  const body = new URLSearchParams();
+  body.append('payload', JSON.stringify(payload));
+  body.append('csrf_bd_gem_nk', session.csrfToken);
+
+  const res = await fetch(`${GEM_BASE}/all-bids-data`, {
+    method: 'POST',
+    headers: {
+      'User-Agent': USER_AGENT,
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Referer': `${GEM_BASE}/all-bids`,
+      'Cookie': session.cookies,
+    },
+    body: body.toString(),
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT)
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+  const data = await res.json();
+  if (data?.code !== 200) throw new Error(`GeM API returned code ${data?.code}: ${data?.message || 'unknown'}`);
+  return {
+    docs: data.response?.response?.docs || [],
+    numFound: data.response?.response?.numFound || 0,
+  };
+}
+
+/**
+ * The newest-first listing starts with hundreds of reverse auctions scheduled for the
+ * coming days; freshly published, already-open bids only begin after them.
+ * Binary search for the first page whose bids have already started.
+ */
+async function findFirstLivePage(getPage) {
+  const isLive = (docs) => {
+    const start = gemDate(docs[0]?.final_start_date_sort?.[0]);
+    return !start || start <= new Date();
+  };
+
+  const first = await getPage(1);
+  if (isLive(first.docs)) return 1;
+
+  let lo = 1; // known not live
+  let hi = Math.max(2, Math.ceil(first.numFound / 10));
+  while (hi - lo > 1) {
+    const mid = Math.floor((lo + hi) / 2);
+    const { docs } = await getPage(mid);
+    if (docs.length === 0 || isLive(docs)) hi = mid;
+    else lo = mid;
+  }
+  return hi;
+}
+
+/**
+ * Fetch real ongoing bids directly from GeM Portal (bidplus.gem.gov.in).
+ * Throws if no bids could be fetched at all, so callers never report a fake "success".
+ */
+async function fetchDirectFromGeM(targetBids = 50, maxPages = 30) {
+  logger.info('📡 Connecting to GeM portal (bidplus.gem.gov.in)...');
+  let session = await withRetry('GeM session', openGemSession);
+  logger.info('🔐 Acquired GeM portal session & security token.');
+
+  const getPage = (page) => withRetry(`GeM page ${page}`, async () => {
+    try {
+      return await fetchGemPage(session, page);
+    } catch (err) {
+      // Session/CSRF may have expired — refresh before the next attempt
+      session = await openGemSession();
+      throw err;
+    }
+  });
+
+  const startPage = await findFirstLivePage(getPage);
+  logger.info(`🔎 Newest live bids begin at GeM listing page ${startPage}.`);
+
+  // Keep only regular bids (GEM/yyyy/B/...). Reverse auctions are follow-ups restricted to
+  // vendors already qualified in the parent bid, so they are not open opportunities.
+  const allDocs = [];
+  for (let page = startPage; page < startPage + maxPages && allDocs.length < targetBids; page++) {
+    try {
+      const { docs } = await getPage(page);
+      if (docs.length === 0) break;
+      allDocs.push(...docs.filter(d => /\/B\//.test(d.b_bid_number?.[0] || '')));
+    } catch (err) {
+      logger.warn(`⚠️ Giving up on GeM page ${page}: ${err.message}`);
+    }
+  }
+
+  if (allDocs.length === 0) {
+    throw new Error('GeM portal returned no bids (portal may be down or blocking requests)');
+  }
+
+  logger.info(`📥 Retrieved ${allDocs.length} genuine ongoing bids directly from GeM.`);
+  return allDocs;
+}
+
+/**
+ * Document URL logic mirrors GeM's own listing page
+ */
+function gemDocUrl(doc) {
+  const bidId = doc.b_id?.[0];
+  if (!bidId) return `${GEM_BASE}/all-bids`;
+  const bidType = doc.b_bid_type?.[0];
+  let path = 'showbidDocument';
+  if (bidType === 5) path = 'showdirectradocumentPdf';
+  else if (bidType === 2) path = doc.b_eval_type?.[0] > 0 ? 'list-ra-schedules' : 'showradocumentPdf';
+  return `${GEM_BASE}/${path}/${bidId}`;
+}
+
+function mapGemDoc(doc, catMap) {
+  const refNo = doc.b_bid_number?.[0];
+  if (!refNo) return null;
+
+  const title = doc.b_category_name?.[0] || 'Government Procurement Notice';
+  const ministry = doc.ba_official_details_minName?.[0] || '';
+  const deptName = doc.ba_official_details_deptName?.[0] || '';
+  const department = deptName && deptName !== 'NA' ? deptName : (ministry || 'Government of India');
+
+  const state = detectState(department, ministry);
+  const quantity = doc.b_total_quantity?.[0] || 1;
+  const sourceUrl = gemDocUrl(doc);
+  const openingDate = gemDate(doc.final_start_date_sort?.[0]) || new Date();
+  const closingDate = gemDate(doc.final_end_date_sort?.[0]) || new Date(Date.now() + 7 * 86400000);
+
+  // Bid numbers encode the type: GEM/2026/B/... = bid, GEM/2026/R/... = reverse auction
+  const isRA = /\/R\//.test(refNo);
+  const parentBid = doc.b_bid_number_parent?.[0];
+  const flags = [
+    doc.ba_is_global_tendering?.[0] === 1 && 'Global Tender',
+    doc.ba_is_limited_tendering?.[0] === 1 && 'Limited Tender',
+    doc.is_rc_bid?.[0] === 1 && 'Rate Contract',
+    doc.bd_details_is_boq?.[0] === 1 && 'BOQ',
+  ].filter(Boolean);
+  const tenderType = [isRA ? 'Reverse Auction (RA)' : 'GeM Bid', ...flags].join(' · ');
+
+  const descParts = [
+    `Official GeM procurement: ${title.replace(/[.\s]+$/, '')}.`,
+    `Total quantity: ${quantity}.`,
+    `Buyer: ${department}${ministry && ministry !== department ? `, ${ministry}` : ''}.`,
+    isRA && parentBid && parentBid !== refNo && `Reverse auction arising from bid ${parentBid}; open only to bidders technically qualified in that bid.`,
+    doc.is_high_value?.[0] === true && 'High value bid (estimated value ₹2 Cr or more).',
+    'Full specifications, EMD and eligibility criteria are in the official bid document.',
+  ].filter(Boolean);
+
+  return {
+    refNo,
+    title,
+    department,
+    location: state || 'Pan India',
+    state: state || 'All India',
+    status: openingDate > new Date() ? 'UPCOMING' : 'ACTIVE',
+    openingDate,
+    closingDate,
+    isPublished: true,
+    source: 'GeM Portal',
+    sourceUrl,
+    tenderType,
+    description: descParts.join(' '),
+    categoryId: classifyCategory(title, department, catMap) || null,
+    documents: [{ name: isRA ? 'Official_GeM_RA_Document.pdf' : 'Official_GeM_Bid_Document.pdf', url: sourceUrl }],
+  };
 }
 
 /**
  * Synchronize live tenders:
  * Extracts real ongoing bids directly from official GeM portal (bidplus.gem.gov.in)
  * along with real NIT PDF documents and authentic reference IDs.
+ * DB writes are batched (one insert + one update query) to keep the request fast.
  */
 async function syncLiveTenders() {
   logger.info('🚀 Initiating Live Tender Sync...');
-  let synced = 0;
-  let skipped = 0;
 
+  const categories = await prisma.tenderCategory.findMany();
+  const catMap = {};
+  categories.forEach(c => { catMap[c.slug] = c.id; });
+
+  let gemDocs;
   try {
-    // 1. Fetch available categories
-    const categories = await prisma.tenderCategory.findMany();
-    const catMap = {};
-    categories.forEach(c => { catMap[c.slug] = c.id; });
-
-    // 2. Fetch genuine live bids directly from GeM Portal
-    const gemDocs = await fetchDirectFromGeM(5);
-
-    for (const doc of gemDocs) {
-      const bidNo = doc.b_bid_number?.[0];
-      const bidId = doc.b_id?.[0];
-      const title = doc.b_category_name?.[0] || 'Government Procurement Notice';
-      const ministry = doc.ba_official_details_minName?.[0] || '';
-      const deptName = doc.ba_official_details_deptName?.[0] || '';
-      const department = deptName && deptName !== 'NA' ? deptName : (ministry || 'Government of India');
-      
-      const isGujarat = (title + department + ministry).toLowerCase().includes('gujarat');
-      const location = isGujarat ? 'Gujarat' : 'Pan India';
-      const state = isGujarat ? 'Gujarat' : 'All India';
-
-      const openingDate = doc.final_start_date_sort?.[0] ? new Date(doc.final_start_date_sort[0]) : new Date();
-      const closingDate = doc.final_end_date_sort?.[0] ? new Date(doc.final_end_date_sort[0]) : new Date(Date.now() + 7 * 86400000);
-      
-      const quantity = doc.b_total_quantity?.[0] ? doc.b_total_quantity[0] : 1;
-      const categoryId = classifyCategory(title, department, catMap);
-      
-      const docUrl = bidId ? `https://bidplus.gem.gov.in/showbidDocument/${bidId}` : 'https://bidplus.gem.gov.in/all-bids';
-      const tenderType = doc.b_is_bunch?.[0] ? 'Bunch Bid' : (doc.b_bid_type?.[0] === 5 ? 'Reverse Auction (RA)' : 'GeM Open Bid');
-
-      if (!bidNo) continue;
-
-      try {
-        await prisma.tender.upsert({
-          where: { refNo: bidNo },
-          update: {
-            title,
-            department,
-            location,
-            state,
-            status: 'ACTIVE',
-            openingDate,
-            closingDate,
-            isPublished: true,
-            source: 'GeM Portal',
-            sourceUrl: docUrl,
-            tenderType,
-            description: `Official GeM Procurement: ${title}. Total quantity: ${quantity}. Procured by ${department} (${ministry}). Notice published on Government e-Marketplace (GeM) public procurement portal.`,
-            categoryId,
-            documents: [
-              { name: 'Official_GeM_NIT_Document.pdf', url: docUrl }
-            ],
-          },
-          create: {
-            refNo: bidNo,
-            title,
-            department,
-            location,
-            state,
-            value: null,
-            status: 'ACTIVE',
-            openingDate,
-            closingDate,
-            isPublished: true,
-            source: 'GeM Portal',
-            sourceUrl: docUrl,
-            tenderType,
-            eligibility: 'Registered GeM Vendors / OEMs conforming to technical specifications',
-            description: `Official GeM Procurement: ${title}. Total quantity: ${quantity}. Procured by ${department} (${ministry}). Notice published on Government e-Marketplace (GeM) public procurement portal.`,
-            categoryId,
-            documents: [
-              { name: 'Official_GeM_NIT_Document.pdf', url: docUrl }
-            ],
-          }
-        });
-        synced++;
-      } catch (err) {
-        logger.error(`Failed to upsert GeM bid ${bidNo}: ${err.message}`);
-        skipped++;
-      }
-    }
-
-    logger.info(`✅ Live Tender Sync completed: ${synced} genuine tenders synced, ${skipped} skipped.`);
-    return { success: true, synced, skipped, total: synced + skipped };
+    gemDocs = await fetchDirectFromGeM(50);
   } catch (err) {
-    logger.error(`❌ Live Tender Sync error: ${err.message}`);
+    err.status = 502; // upstream failure — surface the real message to the admin UI
+    err.message = `GeM sync failed: ${err.message}`;
     throw err;
   }
+
+  // Dedupe by refNo (pages can overlap while new bids are being published)
+  const byRef = new Map();
+  for (const doc of gemDocs) {
+    const t = mapGemDoc(doc, catMap);
+    if (t) byRef.set(t.refNo, t);
+  }
+  const tenders = [...byRef.values()];
+  const skipped = gemDocs.length - tenders.length;
+
+  const existing = await prisma.tender.findMany({
+    where: { refNo: { in: tenders.map(t => t.refNo) } },
+    select: { refNo: true }
+  });
+  const existingRefs = new Set(existing.map(e => e.refNo));
+  const toCreate = tenders.filter(t => !existingRefs.has(t.refNo));
+  const toUpdate = tenders.filter(t => existingRefs.has(t.refNo));
+
+  let created = 0;
+  if (toCreate.length) {
+    const res = await prisma.tender.createMany({
+      data: toCreate.map(t => ({
+        ...t,
+        publishedAt: new Date(),
+        eligibility: 'Registered GeM Vendors / OEMs conforming to technical specifications',
+      })),
+      skipDuplicates: true,
+    });
+    created = res.count;
+  }
+
+  let updated = 0;
+  if (toUpdate.length) {
+    updated = await prisma.$executeRaw`
+      UPDATE "tenders" AS t SET
+        "title" = x."title",
+        "department" = x."department",
+        "location" = x."location",
+        "state" = x."state",
+        "status" = x."status"::"TenderStatus",
+        "openingDate" = x."openingDate"::timestamp,
+        "closingDate" = x."closingDate"::timestamp,
+        "isPublished" = true,
+        "source" = x."source",
+        "sourceUrl" = x."sourceUrl",
+        "tenderType" = x."tenderType",
+        "description" = x."description",
+        "categoryId" = x."categoryId",
+        "documents" = x."documents",
+        "updatedAt" = NOW()
+      FROM jsonb_to_recordset(${JSON.stringify(toUpdate)}::jsonb) AS x(
+        "refNo" text, "title" text, "department" text, "location" text, "state" text, "status" text,
+        "openingDate" text, "closingDate" text, "source" text, "sourceUrl" text,
+        "tenderType" text, "description" text, "categoryId" text, "documents" jsonb
+      )
+      WHERE t."refNo" = x."refNo"`;
+  }
+
+  // Move previously synced GeM bids along their lifecycle without needing to re-fetch them
+  const now = new Date();
+  const closed = await prisma.tender.updateMany({
+    where: { source: 'GeM Portal', status: { in: ['ACTIVE', 'UPCOMING'] }, closingDate: { lt: now } },
+    data: { status: 'CLOSED' }
+  });
+  await prisma.tender.updateMany({
+    where: { source: 'GeM Portal', status: 'UPCOMING', openingDate: { lte: now }, closingDate: { gte: now } },
+    data: { status: 'ACTIVE' }
+  });
+
+  const synced = created + updated;
+  logger.info(`✅ Live Tender Sync completed: ${created} new, ${updated} updated, ${closed.count} closed, ${skipped} skipped.`);
+  return { success: true, synced, created, updated, closed: closed.count, skipped, total: gemDocs.length };
 }
 
 module.exports = { syncLiveTenders };

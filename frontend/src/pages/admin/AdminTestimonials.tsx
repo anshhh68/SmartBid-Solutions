@@ -59,7 +59,7 @@ export default function AdminTestimonials() {
       setEditingItem(item);
       setName(item.name);
       setCompany(item.company || '');
-      setRole(item.role || '');
+      setRole(item.designation || '');
       setRating(String(item.rating || 5));
       setContent(item.content || '');
       setOrder(String(item.order || 0));
@@ -89,7 +89,7 @@ export default function AdminTestimonials() {
     saveMutation.mutate({
       name,
       company,
-      role,
+      designation: role,
       rating: parseInt(rating) || 5,
       content,
       order: parseInt(order) || 0,
@@ -166,7 +166,7 @@ export default function AdminTestimonials() {
                 <div>
                   <h4 className="text-sm font-bold text-slate-900">{t.name}</h4>
                   <p className="text-[11px] text-slate-500">
-                    {t.role ? `${t.role}, ` : ''}{t.company}
+                    {t.designation ? `${t.designation}, ` : ''}{t.company}
                   </p>
                 </div>
                 <span className="text-[11px] text-slate-400 font-mono">#{t.order}</span>

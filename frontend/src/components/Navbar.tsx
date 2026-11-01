@@ -18,7 +18,7 @@ export default function Navbar() {
     <header className="sticky top-0 z-50 border-b border-rule bg-paper">
       <div className="hidden border-b border-rule bg-ink text-[11px] text-paper/80 md:block">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-1.5">
-          <p>Ahmedabad desk · 24/7 Dedicated Support & Bid Advisory</p>
+          <p>Serving All India · 24/7 Dedicated Support & Bid Advisory</p>
           <div className="flex items-center gap-5">
             <a href={`tel:${PHONES[0].replace(/\s/g, '')}`} className="hover:text-paper">{PHONES[0]}</a>
             <a href={`mailto:${EMAILS[0]}`} className="hover:text-paper">{EMAILS[0]}</a>

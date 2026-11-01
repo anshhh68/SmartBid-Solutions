@@ -7,7 +7,7 @@ export default function About() {
     <div className="bg-paper min-h-screen">
       <div className="border-b border-rule bg-ink py-16 text-paper">
         <div className="max-w-6xl mx-auto px-4">
-          <h1 className="font-display text-4xl">The Ahmedabad desk</h1>
+          <h1 className="font-display text-4xl">Serving All India</h1>
           <p className="mt-3 max-w-2xl text-paper/70">
             Government bidding support for MSMEs who cannot keep a clerk on GeM all day.
           </p>
@@ -116,7 +116,7 @@ export default function About() {
               <Mail className="w-4 h-4 text-ochre" /> {EMAILS[0]}
             </a>
             <div className="flex items-center gap-2 text-paper/80">
-              <MapPin className="w-4 h-4 text-ochre" /> Ahmedabad, Gujarat
+              <MapPin className="w-4 h-4 text-ochre" /> All India
             </div>
           </div>
           <Link

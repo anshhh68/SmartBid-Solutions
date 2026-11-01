@@ -36,7 +36,7 @@ export default function Login() {
       <p className="text-[11px] uppercase tracking-[0.2em] text-ink-soft">Administration Console</p>
       <form onSubmit={handleSubmit} className="mt-10 w-full max-w-sm space-y-4 border border-rule bg-paper-2 p-8">
         <h1 className="font-display text-2xl">Admin sign-in</h1>
-        <p className="text-sm text-ink-soft">This page is for the Ahmedabad desk. Customers use Contact or WhatsApp.</p>
+        <p className="text-sm text-ink-soft">This page is for the SmartBid desk. Customers use Contact or WhatsApp.</p>
         <input
           type="email"
           required

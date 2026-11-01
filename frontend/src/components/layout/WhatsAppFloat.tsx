@@ -94,7 +94,7 @@ export function WhatsAppFloat() {
                 </div>
                 <h4 className="font-bold text-slate-900 text-base">Message Delivered!</h4>
                 <p className="text-xs text-slate-600 leading-relaxed max-w-[280px] mx-auto">
-                  Your message has been directly received by the admin at our Ahmedabad desk. We will review your request and contact you promptly.
+                  Your message has been directly received by the SmartBid admin desk. We will review your request and contact you promptly.
                 </p>
                 <div className="pt-2 flex flex-col gap-2">
                   <button

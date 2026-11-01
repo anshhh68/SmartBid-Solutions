@@ -64,7 +64,7 @@ export default function Home() {
               Gujarat desk · India-wide portals
             </p>
             <h1 className="mt-4 font-display text-4xl font-semibold leading-[1.12] text-ink sm:text-5xl lg:text-[3.4rem]">
-              {s.hero_title || 'Government tenders, read and filed from Ahmedabad.'}
+              {s.hero_title || 'Government tenders, read and filed across All India.'}
             </h1>
             <p className="mt-5 max-w-xl text-base leading-relaxed text-ink-soft">
               {s.hero_subtitle ||
