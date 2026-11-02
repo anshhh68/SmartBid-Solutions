@@ -7,6 +7,7 @@ const multer = require('multer');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
 const { syncLiveTenders } = require('../services/tenderSyncService');
+const { captureTenders } = require('../services/tenderCapture');
 
 // File upload config
 const storage = multer.diskStorage({
@@ -245,10 +246,33 @@ router.post('/tenders/sync-live', asyncHandler(async (req, res) => {
       userId: req.user.id,
       action: 'SYNC',
       entity: 'Tender',
-      metadata: { synced: result.synced, skipped: result.skipped }
+      metadata: { synced: result.synced, skipped: result.skipped, sources: result.sources }
     }
   });
-  res.json({ message: `Synced ${result.synced} live tenders from GeM (${result.created} new, ${result.updated} updated)`, ...result });
+  const perSource = Object.entries(result.sources)
+    .map(([name, r]) => `${name}: ${typeof r === 'number' ? r : 'failed'}`)
+    .join(', ');
+  res.json({ message: `Synced ${result.synced} live tenders (${result.created} new, ${result.updated} updated) — ${perSource}`, ...result });
+}));
+
+// Tenders captured by staff from captcha/login-protected portals via the "Send to SmartBid" bookmark
+router.post('/tenders/capture', asyncHandler(async (req, res) => {
+  const { pageUrl, rows } = req.body;
+  if (!pageUrl || !Array.isArray(rows) || rows.length === 0) {
+    return res.status(400).json({ error: 'No captured tenders received' });
+  }
+  if (rows.length > 2000) {
+    return res.status(400).json({ error: 'Too many rows in one capture (max 2000)' });
+  }
+
+  const result = await captureTenders(pageUrl, rows);
+  await prisma.auditLog.create({
+    data: { userId: req.user.id, action: 'CAPTURE', entity: 'Tender', metadata: result }
+  });
+  res.json({
+    message: `Saved ${result.created + result.updated} tenders from ${result.source} (${result.created} new, ${result.updated} updated)`,
+    ...result,
+  });
 }));
 
 // Import tenders from JSON body (CSV processing done client-side)

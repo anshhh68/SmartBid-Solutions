@@ -1,7 +1,10 @@
 const prisma = require('../utils/prisma');
 const { logger } = require('../utils/logger');
+const { fetchNprocureRows, NPROCURE_BASE } = require('./tenderSources/nprocure');
 
 const GEM_BASE = 'https://bidplus.gem.gov.in';
+const GEM_SOURCE = 'GeM Portal';
+const NPROCURE_SOURCE = 'nProcure (Gujarat)';
 const USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const REQUEST_TIMEOUT = 20000;
 const MAX_RETRIES = 3;
@@ -261,45 +264,98 @@ function mapGemDoc(doc, catMap) {
     openingDate,
     closingDate,
     isPublished: true,
-    source: 'GeM Portal',
+    source: GEM_SOURCE,
     sourceUrl,
     tenderType,
     description: descParts.join(' '),
     categoryId: classifyCategory(title, department, catMap) || null,
     documents: [{ name: isRA ? 'Official_GeM_RA_Document.pdf' : 'Official_GeM_Bid_Document.pdf', url: sourceUrl }],
+    eligibility: 'Registered GeM Vendors / OEMs conforming to technical specifications',
   };
 }
 
+function mapNprocureRow(row, catMap) {
+  const valueText = row.value ? ` Estimated contract value: ₹${row.value.toLocaleString('en-IN')}.` : '';
+  return {
+    // Notice numbers repeat across departments; the portal's Tender ID is unique
+    refNo: `NPROCURE/${row.tenderId}`,
+    title: row.title || 'Gujarat Government e-Tender',
+    department: row.department || 'Government of Gujarat',
+    location: 'Gujarat',
+    state: 'Gujarat',
+    value: row.value,
+    status: 'ACTIVE',
+    openingDate: null,
+    closingDate: row.closingDate,
+    isPublished: true,
+    source: NPROCURE_SOURCE,
+    // Notices open only through a form POST on the portal, so link its home page + Tender ID
+    sourceUrl: `${NPROCURE_BASE}/`,
+    tenderType: 'nProcure e-Tender',
+    description: `Gujarat government e-tender: ${row.title.replace(/[.\s]+$/, '')}. Notice No: ${row.noticeNo}. Buyer: ${row.department}.${valueText} For the full notice, EMD and documents, search Tender ID ${row.tenderId} on tender.nprocure.com.`,
+    categoryId: classifyCategory(row.title, row.department, catMap) || null,
+    documents: [],
+    eligibility: 'As per tender notice on nProcure',
+  };
+}
+
+// Each source fetches independently; one portal being down doesn't block the others
+const SOURCES = [
+  { name: GEM_SOURCE, fetch: async (catMap) => (await fetchDirectFromGeM(50)).map(d => mapGemDoc(d, catMap)) },
+  { name: NPROCURE_SOURCE, fetch: async (catMap) => (await withRetry('nProcure', () => fetchNprocureRows(450))).map(r => mapNprocureRow(r, catMap)) },
+];
+
 /**
- * Synchronize live tenders:
- * Extracts real ongoing bids directly from official GeM portal (bidplus.gem.gov.in)
- * along with real NIT PDF documents and authentic reference IDs.
+ * Synchronize live tenders from every source (GeM + nProcure).
  * DB writes are batched (one insert + one update query) to keep the request fast.
  */
 async function syncLiveTenders() {
   logger.info('🚀 Initiating Live Tender Sync...');
 
-  const categories = await prisma.tenderCategory.findMany();
-  const catMap = {};
-  categories.forEach(c => { catMap[c.slug] = c.id; });
+  const catMap = await getCategoryMap();
+  const results = await Promise.allSettled(SOURCES.map(s => s.fetch(catMap)));
+  const fetched = [];
+  const sources = {};
+  const okSources = [];
+  results.forEach((r, i) => {
+    const { name } = SOURCES[i];
+    if (r.status === 'fulfilled') {
+      fetched.push(...r.value.filter(Boolean));
+      sources[name] = r.value.length;
+      okSources.push(name);
+    } else {
+      sources[name] = `failed: ${r.reason.message}`;
+      logger.error(`❌ ${name} sync failed: ${r.reason.message}`);
+    }
+  });
 
-  let gemDocs;
-  try {
-    gemDocs = await fetchDirectFromGeM(50);
-  } catch (err) {
+  if (okSources.length === 0) {
+    const err = new Error(`Tender sync failed: ${Object.entries(sources).map(([n, e]) => `${n} ${e}`).join('; ')}`);
     err.status = 502; // upstream failure — surface the real message to the admin UI
-    err.message = `GeM sync failed: ${err.message}`;
     throw err;
   }
 
+  const { created, updated, skipped } = await saveTenders(fetched);
+  const closed = await refreshStatuses();
+
+  const synced = created + updated;
+  logger.info(`✅ Live Tender Sync completed: ${created} new, ${updated} updated, ${closed} closed, ${skipped} skipped. Sources: ${JSON.stringify(sources)}`);
+  return { success: true, synced, created, updated, closed, skipped, total: fetched.length, sources };
+}
+
+async function getCategoryMap() {
+  const categories = await prisma.tenderCategory.findMany();
+  return Object.fromEntries(categories.map(c => [c.slug, c.id]));
+}
+
+/**
+ * Insert new tenders and refresh existing ones (matched by refNo) in two batch queries.
+ */
+async function saveTenders(list) {
   // Dedupe by refNo (pages can overlap while new bids are being published)
-  const byRef = new Map();
-  for (const doc of gemDocs) {
-    const t = mapGemDoc(doc, catMap);
-    if (t) byRef.set(t.refNo, t);
-  }
+  const byRef = new Map(list.map(t => [t.refNo, t]));
   const tenders = [...byRef.values()];
-  const skipped = gemDocs.length - tenders.length;
+  const skipped = list.length - tenders.length;
 
   const existing = await prisma.tender.findMany({
     where: { refNo: { in: tenders.map(t => t.refNo) } },
@@ -312,11 +368,7 @@ async function syncLiveTenders() {
   let created = 0;
   if (toCreate.length) {
     const res = await prisma.tender.createMany({
-      data: toCreate.map(t => ({
-        ...t,
-        publishedAt: new Date(),
-        eligibility: 'Registered GeM Vendors / OEMs conforming to technical specifications',
-      })),
+      data: toCreate.map(t => ({ ...t, publishedAt: new Date() })),
       skipDuplicates: true,
     });
     created = res.count;
@@ -330,39 +382,46 @@ async function syncLiveTenders() {
         "department" = x."department",
         "location" = x."location",
         "state" = x."state",
-        "status" = x."status"::"TenderStatus",
+        "value" = COALESCE(x."value", t."value"),
+        -- Keep admin decisions: cancelled/awarded or unpublished tenders stay that way
+        "status" = CASE WHEN t."status" IN ('AWARDED', 'CANCELLED') OR NOT t."isPublished"
+                        THEN t."status" ELSE x."status"::"TenderStatus" END,
         "openingDate" = x."openingDate"::timestamp,
         "closingDate" = x."closingDate"::timestamp,
-        "isPublished" = true,
         "source" = x."source",
         "sourceUrl" = x."sourceUrl",
         "tenderType" = x."tenderType",
         "description" = x."description",
         "categoryId" = x."categoryId",
-        "documents" = x."documents",
+        -- Sources without document links must not wipe documents the admin attached
+        "documents" = CASE WHEN jsonb_array_length(x."documents") = 0 THEN t."documents" ELSE x."documents" END,
         "updatedAt" = NOW()
       FROM jsonb_to_recordset(${JSON.stringify(toUpdate)}::jsonb) AS x(
-        "refNo" text, "title" text, "department" text, "location" text, "state" text, "status" text,
+        "refNo" text, "title" text, "department" text, "location" text, "state" text, "value" float8, "status" text,
         "openingDate" text, "closingDate" text, "source" text, "sourceUrl" text,
         "tenderType" text, "description" text, "categoryId" text, "documents" jsonb
       )
       WHERE t."refNo" = x."refNo"`;
   }
 
-  // Move previously synced GeM bids along their lifecycle without needing to re-fetch them
+  return { created, updated, skipped };
+}
+
+/**
+ * Move tenders along their lifecycle without re-fetching them: past the deadline → CLOSED,
+ * started and not yet closed → ACTIVE. Returns how many were closed.
+ */
+async function refreshStatuses() {
   const now = new Date();
   const closed = await prisma.tender.updateMany({
-    where: { source: 'GeM Portal', status: { in: ['ACTIVE', 'UPCOMING'] }, closingDate: { lt: now } },
+    where: { status: { in: ['ACTIVE', 'UPCOMING'] }, closingDate: { lt: now } },
     data: { status: 'CLOSED' }
   });
   await prisma.tender.updateMany({
-    where: { source: 'GeM Portal', status: 'UPCOMING', openingDate: { lte: now }, closingDate: { gte: now } },
+    where: { status: 'UPCOMING', openingDate: { lte: now }, closingDate: { gte: now } },
     data: { status: 'ACTIVE' }
   });
-
-  const synced = created + updated;
-  logger.info(`✅ Live Tender Sync completed: ${created} new, ${updated} updated, ${closed.count} closed, ${skipped} skipped.`);
-  return { success: true, synced, created, updated, closed: closed.count, skipped, total: gemDocs.length };
+  return closed.count;
 }
 
-module.exports = { syncLiveTenders };
+module.exports = { syncLiveTenders, saveTenders, refreshStatuses, getCategoryMap, classifyCategory, detectState };

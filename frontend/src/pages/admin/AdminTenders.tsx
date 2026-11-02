@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 import {
   FileText, Plus, Search, Filter, Edit, Trash2,
   CheckCircle, XCircle, Eye, Upload, ChevronLeft, ChevronRight,
-  RefreshCw
+  RefreshCw, Bookmark
 } from 'lucide-react';
 import { useDebounce } from '../../hooks/useDebounce';
 
@@ -132,7 +132,7 @@ export default function AdminTenders() {
             onClick={() => syncMutation.mutate()}
             disabled={syncMutation.isPending}
             className="inline-flex items-center gap-2 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50"
-            title="Automatically pull and refresh active tenders from GeM & State portals"
+            title="Automatically pull and refresh active tenders from GeM and nProcure (Gujarat)"
           >
             <RefreshCw className={`w-4 h-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
             {syncMutation.isPending ? 'Syncing Bids...' : 'Sync Live Bids'}
@@ -144,6 +144,14 @@ export default function AdminTenders() {
             <Upload className="w-4 h-4" />
             Bulk Import (JSON)
           </button>
+          <Link
+            to="/admin/tenders/capture"
+            className="inline-flex items-center gap-2 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-sm font-medium transition-colors"
+            title="Capture tenders from CPPP, IREPS and state portals"
+          >
+            <Bookmark className="w-4 h-4" />
+            Capture from Portal
+          </Link>
           <Link
             to="/admin/tenders/new"
             className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-colors shadow-sm"

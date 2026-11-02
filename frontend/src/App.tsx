@@ -22,6 +22,7 @@ const AdminLogin = lazy(() => import('./pages/auth/Login'));
 const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'));
 const AdminTenders = lazy(() => import('./pages/admin/AdminTenders'));
 const AdminTenderForm = lazy(() => import('./pages/admin/AdminTenderForm'));
+const AdminTenderCapture = lazy(() => import('./pages/admin/AdminTenderCapture'));
 const AdminEnquiries = lazy(() => import('./pages/admin/AdminEnquiries'));
 const AdminUsers = lazy(() => import('./pages/admin/AdminUsers'));
 const AdminServices = lazy(() => import('./pages/admin/AdminServices'));
@@ -84,6 +85,7 @@ function App() {
                 <Route path="/admin" element={<AdminDashboard />} />
                 <Route path="/admin/tenders" element={<AdminTenders />} />
                 <Route path="/admin/tenders/new" element={<AdminTenderForm />} />
+                <Route path="/admin/tenders/capture" element={<AdminTenderCapture />} />
                 <Route path="/admin/tenders/:id/edit" element={<AdminTenderForm />} />
                 <Route path="/admin/enquiries" element={<AdminEnquiries />} />
                 <Route path="/admin/users" element={<AdminUsers />} />
