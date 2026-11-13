@@ -74,7 +74,7 @@ async function sendEnquiryNotificationToAdmin(enquiry) {
           </div>
 
           <div style="margin-top: 24px; text-align: center;">
-            <a href="http://localhost:5173/admin/enquiries" style="display: inline-block; padding: 12px 24px; background: #2563eb; color: #ffffff; text-decoration: none; font-weight: bold; font-size: 13px; border-radius: 8px;">
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/admin/enquiries" style="display: inline-block; padding: 12px 24px; background: #2563eb; color: #ffffff; text-decoration: none; font-weight: bold; font-size: 13px; border-radius: 8px;">
               Open Admin CRM to Manage Enquiry
             </a>
           </div>

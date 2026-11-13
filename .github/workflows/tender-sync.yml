@@ -1,0 +1,30 @@
+name: Tender sync
+
+on:
+  schedule:
+    - cron: '30 0 * * *' # 06:00 IST
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Trigger /api/internal/sync-tenders
+        env:
+          SYNC_URL: ${{ secrets.SYNC_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$SYNC_URL" ] || [ -z "$CRON_SECRET" ]; then
+            echo "SYNC_URL / CRON_SECRET repo secrets not set - skipping tender sync."
+            exit 0
+          fi
+          # First call may hit a sleeping Render instance; retry up to 3 times
+          for attempt in 1 2 3; do
+            if curl -fsS -X POST "$SYNC_URL" -H "x-cron-secret: $CRON_SECRET" --max-time 300; then
+              echo; echo "Sync succeeded on attempt $attempt"; exit 0
+            fi
+            echo "Attempt $attempt failed"
+            [ "$attempt" -lt 3 ] && sleep 60
+          done
+          exit 1

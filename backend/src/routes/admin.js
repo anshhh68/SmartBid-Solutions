@@ -5,17 +5,13 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const multer = require('multer');
 const path = require('path');
-const { v4: uuidv4 } = require('uuid');
 const { syncLiveTenders } = require('../services/tenderSyncService');
 const { captureTenders } = require('../services/tenderCapture');
+const { getUploadStorage, getUploadedFileUrl } = require('../utils/storage');
 
-// File upload config
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, '../../uploads')),
-  filename: (req, file, cb) => cb(null, `${uuidv4()}${path.extname(file.originalname)}`),
-});
+// File upload config (disk by default, Cloudinary when configured — see utils/storage.js)
 const upload = multer({
-  storage,
+  storage: getUploadStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (req, file, cb) => {
     const allowed = ['.jpg', '.jpeg', '.png', '.pdf', '.xlsx', '.csv'];
@@ -564,10 +560,10 @@ router.put('/pages/:id', asyncHandler(async (req, res) => {
 }));
 
 // File upload
-router.post('/upload', upload.single('file'), (req, res) => {
+router.post('/upload', upload.single('file'), asyncHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  const url = `/uploads/${req.file.filename}`;
+  const url = await getUploadedFileUrl(req.file);
   res.json({ url, filename: req.file.originalname, size: req.file.size });
-});
+}));
 
 module.exports = router;

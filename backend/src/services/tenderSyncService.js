@@ -424,4 +424,20 @@ async function refreshStatuses() {
   return closed.count;
 }
 
-module.exports = { syncLiveTenders, saveTenders, refreshStatuses, getCategoryMap, classifyCategory, detectState };
+// Cron + /api/internal/sync-tenders share this lock so overlapping runs get 409 instead of syncing twice
+let syncRunning = false;
+async function syncLiveTendersExclusive() {
+  if (syncRunning) {
+    const err = new Error('Tender sync already running');
+    err.status = 409;
+    throw err;
+  }
+  syncRunning = true;
+  try {
+    return await syncLiveTenders();
+  } finally {
+    syncRunning = false;
+  }
+}
+
+module.exports = { syncLiveTenders, syncLiveTendersExclusive, saveTenders, refreshStatuses, getCategoryMap, classifyCategory, detectState };

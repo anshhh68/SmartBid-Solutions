@@ -14,11 +14,13 @@ const planRoutes = require('./routes/plans');
 const userRoutes = require('./routes/users');
 const adminRoutes = require('./routes/admin');
 const publicRoutes = require('./routes/public');
+const internalRoutes = require('./routes/internal');
 
 const { errorHandler } = require('./middleware/errorHandler');
 const { logger } = require('./utils/logger');
 
 const app = express();
+if (process.env.TRUST_PROXY) app.set('trust proxy', Number(process.env.TRUST_PROXY) || process.env.TRUST_PROXY);
 const PORT = process.env.PORT || 5000;
 
 // Security middleware
@@ -70,6 +72,7 @@ app.use('/api/plans', planRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/public', publicRoutes);
+app.use('/api/internal', internalRoutes);
 
 // Health check
 app.get('/health', (req, res) => {
@@ -85,20 +88,26 @@ app.use((req, res) => {
 });
 
 const cron = require('node-cron');
-const { syncLiveTenders } = require('./services/tenderSyncService');
+const { syncLiveTendersExclusive } = require('./services/tenderSyncService');
 
 app.listen(PORT, () => {
   logger.info(`SmartBid API running on port ${PORT}`);
 
-  // Auto-sync live GeM & State portal tenders every morning at 06:00 AM IST
+  // Hosts that sleep (e.g. Render free) set DISABLE_INTERNAL_CRON=true and trigger /api/internal/sync-tenders instead
+  if (process.env.DISABLE_INTERNAL_CRON === 'true') {
+    logger.info('📅 Internal tender cron disabled (DISABLE_INTERNAL_CRON=true)');
+    return;
+  }
+
+  // Auto-sync live GeM & State portal tenders every morning at 06:00 (server time, or CRON_TZ if set)
   cron.schedule('0 6 * * *', async () => {
     try {
       logger.info('⏰ Running scheduled morning tender synchronization...');
-      await syncLiveTenders();
+      await syncLiveTendersExclusive();
     } catch (e) {
       logger.error('Error during scheduled tender sync: ' + e.message);
     }
-  });
+  }, process.env.CRON_TZ ? { timezone: process.env.CRON_TZ } : undefined);
   logger.info('📅 Live tender cron job scheduled for daily 06:00 AM execution');
 });
 
