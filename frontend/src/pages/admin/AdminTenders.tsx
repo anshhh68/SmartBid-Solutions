@@ -72,7 +72,7 @@ export default function AdminTenders() {
   const syncMutation = useMutation({
     mutationFn: async () => {
       // Scraping GeM can take a while; override the default 15s API timeout
-      const res = await api.post('/admin/tenders/sync-live', null, { timeout: 120000 });
+      const res = await api.post('/admin/tenders/sync-live', {}, { timeout: 120000 });
       return res.data;
     },
     onSuccess: (data) => {
