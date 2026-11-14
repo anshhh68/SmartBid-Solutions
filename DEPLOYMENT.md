@@ -4,9 +4,10 @@ There are two free hosting options. Pick one.
 
 | | Plan A: Oracle Cloud server | Plan B: managed free services |
 |---|---|---|
-| Frontend | nginx on the VM | Netlify |
+| Domain + DNS | your registrar | Cloudflare |
+| Frontend | nginx on the VM | Cloudflare Pages |
 | API | Node + pm2 on the VM | Render (free web service) |
-| Database | PostgreSQL on the VM | Neon |
+| Database | PostgreSQL on the VM | Supabase |
 | Uploads | `backend/uploads` on disk | Cloudinary |
 | Daily tender sync | built-in cron | GitHub Actions calls the API |
 | Upkeep | you patch the VM and take backups | the providers handle it; the API sleeps when idle (~1 min cold start) |
@@ -96,12 +97,12 @@ If you cloned somewhere other than `/var/www/smartbid`, edit `root` in the nginx
 
 ---
 
-## Plan B: Netlify + Render + Neon + Cloudinary + GitHub Actions
+## Plan B: Cloudflare (DNS + Pages) + Render + Supabase + Cloudinary + GitHub Actions
 
-### 1. Database: Neon
-Create a project, then copy both connection strings:
-- **Pooled** (host contains `-pooler`) → `DATABASE_URL`, adding `&pgbouncer=true` to it
-- **Direct** → `DIRECT_URL`
+### 1. Database: Supabase
+In **Project Settings → Database → Connection string**, copy both:
+- **Transaction pooler** (port `6543`) → `DATABASE_URL`, adding `?pgbouncer=true` (or `&pgbouncer=true` if it already has a `?`)
+- **Session pooler / direct** (port `5432`) → `DIRECT_URL`
 
 ### 2. Uploads: Cloudinary
 Create a free account and copy the `CLOUDINARY_URL` from the dashboard.
@@ -120,8 +121,8 @@ Environment variables:
 ```env
 NODE_ENV=production
 NODE_VERSION=22
-DATABASE_URL=<Neon pooled URL>&pgbouncer=true
-DIRECT_URL=<Neon direct URL>
+DATABASE_URL=<Supabase pooler URL, port 6543>?pgbouncer=true
+DIRECT_URL=<Supabase URL, port 5432>
 JWT_SECRET=<long random string>
 JWT_EXPIRES_IN=7d
 FRONTEND_URL=https://smartbidsolutions.in
@@ -135,23 +136,37 @@ Seed once from your own machine: `cd backend && DATABASE_URL=<direct URL> DIRECT
 
 Under **Settings → Custom Domains**, add `api.smartbidsolutions.in`.
 
-### 4. Frontend: Netlify
+### 4. Domain + DNS: Cloudflare
+1. In the Cloudflare dashboard, **Add a domain** → `smartbidsolutions.in` → **Free** plan. Cloudflare imports the existing DNS records.
+   Check the imported list before continuing, especially **MX/TXT records for email**, so mail keeps working.
+2. At your registrar, replace the nameservers with the two Cloudflare shows. The domain stays registered where it is; only DNS moves.
+   Activation usually takes minutes, up to 24 h.
+3. **SSL/TLS → Overview**: set the mode to **Full (strict)**.
+
+### 5. Frontend: Cloudflare Pages
+**Workers & Pages → Create → Pages → Connect to Git**, pick this repo, branch `main`:
+
 | Setting | Value |
 |---|---|
-| Base directory | `frontend` |
+| Framework preset | None (or Vite) |
+| Root directory | `frontend` |
 | Build command | `npm run build` |
-| Publish directory | `frontend/dist` |
-| Env var | `VITE_API_URL=https://api.smartbidsolutions.in/api`, `NODE_VERSION=22` |
+| Build output directory | `dist` |
+| Env vars (Production) | `VITE_API_URL=https://api.smartbidsolutions.in/api`, `NODE_VERSION=22` |
 
-SPA routing comes from `frontend/public/_redirects`. Add the custom domain `smartbidsolutions.in` and set it as **primary**, so `www` redirects to it.
-CORS only allows the single origin in `FRONTEND_URL`, so the site must be served from that exact origin.
+Every push to `main` redeploys. `VITE_API_URL` is baked in at build time, so after changing it, retry the deployment.
+SPA routing works out of the box on Pages (it serves `index.html` for unknown paths).
 
-### 5. DNS (at your domain registrar)
-| Type | Name | Value |
-|---|---|---|
-| A | `@` | Netlify load balancer IP shown in Netlify's domain settings (currently `75.2.60.5`) |
-| CNAME | `www` | `<your-site>.netlify.app` |
-| CNAME | `api` | `<your-service>.onrender.com` |
+Under the project's **Custom domains**, add `smartbidsolutions.in` and `www.smartbidsolutions.in`; Cloudflare creates both DNS records itself.
+Then make `www` redirect to the apex: **Rules → Redirect Rules → Create from template → "Redirect from WWW to root"**.
+CORS only allows the single origin in `FRONTEND_URL`, so the site must be served from that exact origin (`https://smartbidsolutions.in`).
+
+DNS records in Cloudflare when done:
+| Type | Name | Value | Proxy |
+|---|---|---|---|
+| CNAME | `@` | `<project>.pages.dev` (added by Pages) | Proxied |
+| CNAME | `www` | `<project>.pages.dev` (added by Pages) | Proxied |
+| CNAME | `api` | `<your-service>.onrender.com` | **DNS only** (grey cloud), so Render can issue its certificate |
 
 ### 6. Daily sync: GitHub Actions
 In the repo, open **Settings → Secrets and variables → Actions** and add:
