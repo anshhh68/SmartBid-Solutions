@@ -43,7 +43,7 @@ q1p8oZFA+OBcz3FYWpDIe5j0NWKlw9hXsTyPY/HeZUV59akskSOSRSmDfe8wJDPX
 const nprocureClient = Deno.createHttpClient({ caCerts: [SECTIGO_INTERMEDIATE] });
 
 Deno.serve(async (req) => {
-  const secret = Deno.env.get("PORTAL_PROXY_SECRET");
+  const secret = Deno.env.get("PORTAL_PROXY_SECRET")?.trim(); // dashboard pastes may add a newline
   if (!secret || req.headers.get("x-proxy-secret") !== secret) {
     return Response.json({ error: "forbidden" }, { status: 403 });
   }

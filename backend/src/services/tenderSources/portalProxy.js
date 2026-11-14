@@ -9,7 +9,7 @@ const proxyEnabled = () => Boolean(process.env.PORTAL_PROXY_URL);
 async function proxyRequest(url, { method = 'GET', headers = {}, body } = {}) {
   const res = await fetch(process.env.PORTAL_PROXY_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-proxy-secret': process.env.PORTAL_PROXY_SECRET || '' },
+    headers: { 'Content-Type': 'application/json', 'x-proxy-secret': (process.env.PORTAL_PROXY_SECRET || '').trim() },
     body: JSON.stringify({ url, method, headers, body }),
     signal: AbortSignal.timeout(45000),
   });
