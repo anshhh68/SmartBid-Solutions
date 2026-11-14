@@ -122,15 +122,6 @@ router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
   // Increment view count
   await prisma.tender.update({ where: { id: tender.id }, data: { viewCount: { increment: 1 } } });
 
-  // Check if saved by current user
-  let isSaved = false;
-  if (req.user) {
-    const saved = await prisma.savedTender.findUnique({
-      where: { userId_tenderId: { userId: req.user.id, tenderId: tender.id } }
-    });
-    isSaved = !!saved;
-  }
-
   const isAdmin = req.user && req.user.role === 'ADMIN';
 
   // Admin access: Full tender details, official documents with download URLs, and sourceUrl
@@ -138,7 +129,6 @@ router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
     return res.json({
       tender: {
         ...tender,
-        isSaved,
         accessLevel: 'ADMIN',
         hasDocuments: Array.isArray(tender.documents) && tender.documents.length > 0,
         documentsCount: Array.isArray(tender.documents) ? tender.documents.length : 0,
@@ -153,7 +143,6 @@ router.get('/:id', optionalAuth, asyncHandler(async (req, res) => {
   res.json({
     tender: {
       ...essentialTender,
-      isSaved,
       accessLevel: 'CUSTOMER',
       hasDocuments: Array.isArray(documents) && documents.length > 0,
       documentsCount: Array.isArray(documents) ? documents.length : 0,
@@ -175,55 +164,6 @@ router.get('/:id/documents', authenticate, requireAdmin, asyncHandler(async (req
     sourceUrl: tender.sourceUrl,
     accessLevel: 'ADMIN'
   });
-}));
-
-// POST /api/tenders/:id/save — Save/Unsave a tender (auth required)
-router.post('/:id/save', authenticate, asyncHandler(async (req, res) => {
-  const { id } = req.params;
-  const tender = await prisma.tender.findFirst({ where: { id, isPublished: true } });
-  if (!tender) return res.status(404).json({ error: 'Tender not found' });
-
-  const existing = await prisma.savedTender.findUnique({
-    where: { userId_tenderId: { userId: req.user.id, tenderId: id } }
-  });
-
-  if (existing) {
-    await prisma.savedTender.delete({ where: { id: existing.id } });
-    return res.json({ saved: false, message: 'Tender removed from saved' });
-  }
-
-  await prisma.savedTender.create({ data: { userId: req.user.id, tenderId: id } });
-  res.json({ saved: true, message: 'Tender saved successfully' });
-}));
-
-// GET /api/tenders/user/saved — Get user's saved tenders
-router.get('/user/saved', authenticate, asyncHandler(async (req, res) => {
-  const saved = await prisma.savedTender.findMany({
-    where: { userId: req.user.id },
-    include: {
-      tender: {
-        include: { category: { select: { name: true, slug: true } } }
-      }
-    },
-    orderBy: { createdAt: 'desc' }
-  });
-
-  const isAdmin = req.user.role === 'ADMIN';
-  const sanitized = saved.map(s => {
-    if (isAdmin) return { ...s.tender, savedAt: s.createdAt, accessLevel: 'ADMIN' };
-    const { documents, sourceUrl, ...essential } = s.tender;
-    return {
-      ...essential,
-      hasDocuments: Array.isArray(documents) && documents.length > 0,
-      documentsCount: Array.isArray(documents) ? documents.length : 0,
-      documents: null,
-      sourceUrl: null,
-      savedAt: s.createdAt,
-      accessLevel: 'CUSTOMER',
-    };
-  });
-
-  res.json({ savedTenders: sanitized });
 }));
 
 module.exports = router;

@@ -8,7 +8,6 @@ There are two free hosting options. Pick one.
 | Frontend | nginx on the VM | Cloudflare Pages |
 | API | Node + pm2 on the VM | Render (free web service) |
 | Database | PostgreSQL on the VM | Supabase |
-| Uploads | `backend/uploads` on disk | Cloudinary |
 | Daily tender sync | built-in cron | GitHub Actions calls the API |
 | Upkeep | you patch the VM and take backups | the providers handle it; the API sleeps when idle (~1 min cold start) |
 
@@ -25,7 +24,6 @@ Every new environment variable is optional. Leave one unset and the app behaves 
 | `DISABLE_INTERNAL_CRON=true` | Turns off the built-in cron (for hosts that sleep) |
 | `CRON_SECRET` | Enables `POST /api/internal/sync-tenders`, which requires the header `x-cron-secret`. Unset = 404 |
 | `PORTAL_PROXY_URL` + `PORTAL_PROXY_SECRET` | Tender sync reaches GeM/nProcure through the Supabase Edge Function `portal-proxy` (Mumbai). Needed when the API runs outside India, because both portals block foreign IPs. See "Tender portal proxy" below |
-| `CLOUDINARY_URL` (or `CLOUDINARY_CLOUD_NAME` + `CLOUDINARY_API_KEY` + `CLOUDINARY_API_SECRET`) | `POST /api/admin/upload` stores files on Cloudinary and returns an absolute `https://` URL |
 
 `POST /api/internal/sync-tenders` runs the sync synchronously and returns the same JSON as the sync itself (`{ success, synced, created, updated, closed, skipped, total, sources }`).
 If a sync is already running, it returns `409`. Uptime monitors should ping `GET /health` (no DB call, no auth, no rate limit).
@@ -74,7 +72,6 @@ VITE_API_URL=/api
 
 ### 5. Build and start
 ```bash
-mkdir -p backend/uploads
 cd backend && npm ci --include=dev && npx prisma generate && npx prisma db push && npm run db:seed && cd ..
 cd frontend && npm ci && npm run build && cd ..
 pm2 start deploy/ecosystem.config.js && pm2 save && pm2 startup   # run the command pm2 prints
@@ -98,18 +95,14 @@ If you cloned somewhere other than `/var/www/smartbid`, edit `root` in the nginx
 
 ---
 
-## Plan B: Cloudflare (DNS + Pages) + Render + Supabase + Cloudinary + GitHub Actions
+## Plan B: Cloudflare (DNS + Pages) + Render + Supabase + GitHub Actions
 
 ### 1. Database: Supabase
 In **Project Settings → Database → Connection string**, copy both:
 - **Transaction pooler** (port `6543`) → `DATABASE_URL`, adding `?pgbouncer=true` (or `&pgbouncer=true` if it already has a `?`)
 - **Session pooler / direct** (port `5432`) → `DIRECT_URL`
 
-### 2. Uploads: Cloudinary
-Create a free account and copy the `CLOUDINARY_URL` from the dashboard.
-To serve uploaded PDFs, enable **Settings → Security → "Allow delivery of PDF and ZIP files"**. Free accounts block this by default.
-
-### 3. API: Render (Web Service, free)
+### 2. API: Render (Web Service, free)
 | Setting | Value |
 |---|---|
 | Root directory | `backend` |
@@ -130,21 +123,20 @@ FRONTEND_URL=https://smartbidsolutions.in
 TRUST_PROXY=1
 DISABLE_INTERNAL_CRON=true
 CRON_SECRET=<long random string>
-CLOUDINARY_URL=cloudinary://<key>:<secret>@<cloud>
 # SMTP_* / EMAIL_FROM if you want email alerts
 ```
 Seed once from your own machine: `cd backend && DATABASE_URL=<direct URL> DIRECT_URL=<direct URL> npm run db:seed`, then change the seeded passwords.
 
 Under **Settings → Custom Domains**, add `api.smartbidsolutions.in`.
 
-### 4. Domain + DNS: Cloudflare
+### 3. Domain + DNS: Cloudflare
 1. In the Cloudflare dashboard, **Add a domain** → `smartbidsolutions.in` → **Free** plan. Cloudflare imports the existing DNS records.
    Check the imported list before continuing, especially **MX/TXT records for email**, so mail keeps working.
 2. At your registrar, replace the nameservers with the two Cloudflare shows. The domain stays registered where it is; only DNS moves.
    Activation usually takes minutes, up to 24 h.
 3. **SSL/TLS → Overview**: set the mode to **Full (strict)**.
 
-### 5. Frontend: Cloudflare Pages
+### 4. Frontend: Cloudflare Pages
 **Workers & Pages → Create → Pages → Connect to Git**, pick this repo, branch `main`:
 
 | Setting | Value |
@@ -169,7 +161,7 @@ DNS records in Cloudflare when done:
 | CNAME | `www` | `<project>.pages.dev` (added by Pages) | Proxied |
 | CNAME | `api` | `<your-service>.onrender.com` | **DNS only** (grey cloud), so Render can issue its certificate |
 
-### 6. Daily sync: GitHub Actions
+### 5. Daily sync: GitHub Actions
 In the repo, open **Settings → Secrets and variables → Actions** and add:
 - `SYNC_URL` = `https://api.smartbidsolutions.in/api/internal/sync-tenders`
 - `CRON_SECRET` = the same value as on Render

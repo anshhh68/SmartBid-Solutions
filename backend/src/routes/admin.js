@@ -3,22 +3,8 @@ const router = express.Router();
 const prisma = require('../utils/prisma');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
-const multer = require('multer');
-const path = require('path');
-const { syncLiveTenders } = require('../services/tenderSyncService');
+const { syncLiveTendersExclusive } = require('../services/tenderSyncService');
 const { captureTenders } = require('../services/tenderCapture');
-const { getUploadStorage, getUploadedFileUrl } = require('../utils/storage');
-
-// File upload config (disk by default, Cloudinary when configured — see utils/storage.js)
-const upload = multer({
-  storage: getUploadStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
-  fileFilter: (req, file, cb) => {
-    const allowed = ['.jpg', '.jpeg', '.png', '.pdf', '.xlsx', '.csv'];
-    const ext = path.extname(file.originalname).toLowerCase();
-    allowed.includes(ext) ? cb(null, true) : cb(new Error('File type not allowed'));
-  }
-});
 
 // Keep only fields the Prisma model knows about, so stray form fields can't crash a save
 const pick = (obj = {}, keys) => Object.fromEntries(keys.filter(k => obj[k] !== undefined).map(k => [k, obj[k]]));
@@ -236,7 +222,7 @@ router.post('/tenders/bulk-publish', asyncHandler(async (req, res) => {
 
 // On-demand sync of live GeM & State portal tenders
 router.post('/tenders/sync-live', asyncHandler(async (req, res) => {
-  const result = await syncLiveTenders();
+  const result = await syncLiveTendersExclusive();
   await prisma.auditLog.create({
     data: {
       userId: req.user.id,
@@ -278,34 +264,35 @@ router.post('/tenders/import', asyncHandler(async (req, res) => {
     return res.status(400).json({ error: 'tenders array required' });
   }
 
-  let created = 0, skipped = 0;
+  // Validate every row first, then insert in one query (one insert per row timed out at ~500 rows)
   const errors = [];
+  const data = [];
+  // An unknown categoryId would fail the whole batch insert; save such rows uncategorised instead
+  const categoryIds = new Set((await prisma.tenderCategory.findMany({ select: { id: true } })).map(c => c.id));
   for (const [i, t] of tenders.entries()) {
-    try {
-      const data = tenderData(t);
-      if (!data.title || !data.closingDate || isNaN(data.closingDate)) {
-        throw new Error('title and a valid closingDate are required');
-      }
-      await prisma.tender.create({
-        data: {
-          ...data,
-          department: data.department || 'Not specified',
-          location: data.location || 'Pan India',
-          categoryId: t.categoryId || null,
-          documents: Array.isArray(t.documents) ? t.documents : [],
-          source: data.source || 'Import',
-          isPublished: data.isPublished ?? true,
-          publishedAt: data.isPublished === false ? null : new Date(),
-        }
-      });
-      created++;
-    } catch (err) {
-      skipped++;
-      if (errors.length < 5) {
-        errors.push(`#${i + 1}: ${err.code === 'P2002' ? 'duplicate refNo' : err.message.split('\n').pop()}`);
-      }
+    const row = tenderData(t);
+    if (!row.title || !row.closingDate || isNaN(row.closingDate)) {
+      if (errors.length < 5) errors.push(`#${i + 1}: title and a valid closingDate are required`);
+      continue;
     }
+    data.push({
+      ...row,
+      department: row.department || 'Not specified',
+      location: row.location || 'Pan India',
+      categoryId: categoryIds.has(t.categoryId) ? t.categoryId : null,
+      documents: Array.isArray(t.documents) ? t.documents : [],
+      source: row.source || 'Import',
+      isPublished: row.isPublished ?? true,
+      publishedAt: row.isPublished === false ? null : new Date(),
+    });
   }
+
+  const { count: created } = data.length
+    ? await prisma.tender.createMany({ data, skipDuplicates: true })
+    : { count: 0 };
+  const skipped = tenders.length - created;
+  const duplicates = data.length - created;
+  if (duplicates) errors.push(`${duplicates} duplicate refNo`);
 
   res.json({
     message: `Imported ${created} tenders${skipped ? `, skipped ${skipped} (${errors.join('; ')})` : ''}`,
@@ -557,13 +544,6 @@ router.get('/pages', asyncHandler(async (req, res) => {
 router.put('/pages/:id', asyncHandler(async (req, res) => {
   const page = await prisma.page.update({ where: { id: req.params.id }, data: pick(req.body, PAGE_FIELDS) });
   res.json({ page });
-}));
-
-// File upload
-router.post('/upload', upload.single('file'), asyncHandler(async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  const url = await getUploadedFileUrl(req.file);
-  res.json({ url, filename: req.file.originalname, size: req.file.size });
 }));
 
 module.exports = router;

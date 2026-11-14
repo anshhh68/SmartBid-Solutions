@@ -4,7 +4,7 @@ import api from '../../lib/api';
 import toast from 'react-hot-toast';
 import {
   Settings, Save, Phone, Mail, MapPin,
-  Clock, Globe, Shield, MessageCircle
+  Clock, Globe, Shield, MessageCircle, KeyRound
 } from 'lucide-react';
 
 export default function AdminSettings() {
@@ -195,6 +195,70 @@ export default function AdminSettings() {
           </button>
         </div>
       </form>
+
+      <ChangePassword />
     </div>
+  );
+}
+
+function ChangePassword() {
+  const [form, setForm] = useState({ currentPassword: '', newPassword: '', confirm: '' });
+  const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const mutation = useMutation({
+    mutationFn: () => api.post('/auth/change-password', {
+      currentPassword: form.currentPassword,
+      newPassword: form.newPassword,
+    }),
+    onSuccess: () => {
+      toast.success('Password changed');
+      setForm({ currentPassword: '', newPassword: '', confirm: '' });
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || 'Failed to change password'),
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (form.newPassword.length < 8) return toast.error('New password must be at least 8 characters');
+    if (form.newPassword !== form.confirm) return toast.error('New passwords do not match');
+    mutation.mutate();
+  };
+
+  const field = (label: string, key: keyof typeof form, autoComplete: string) => (
+    <div>
+      <label className="block text-xs font-semibold text-slate-700 mb-1">{label}</label>
+      <input
+        type="password"
+        required
+        autoComplete={autoComplete}
+        value={form[key]}
+        onChange={set(key)}
+        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+      />
+    </div>
+  );
+
+  return (
+    <form onSubmit={handleSubmit} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm space-y-4">
+      <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
+        <KeyRound className="w-4 h-4 text-blue-600" />
+        Change Admin Password
+      </h2>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {field('Current password', 'currentPassword', 'current-password')}
+        {field('New password', 'newPassword', 'new-password')}
+        {field('Confirm new password', 'confirm', 'new-password')}
+      </div>
+      <div className="flex justify-end">
+        <button
+          type="submit"
+          disabled={mutation.isPending}
+          className="inline-flex items-center gap-2 px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-sm font-semibold disabled:opacity-50"
+        >
+          {mutation.isPending ? 'Updating...' : 'Update Password'}
+        </button>
+      </div>
+    </form>
   );
 }

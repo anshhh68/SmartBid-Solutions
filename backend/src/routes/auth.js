@@ -4,7 +4,11 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const prisma = require('../utils/prisma');
 const { asyncHandler } = require('../middleware/errorHandler');
+const { authenticate } = require('../middleware/auth');
 const { logger } = require('../utils/logger');
+
+// JWT_EXPIRES_IN like "7d" or "12h"; anything else (e.g. a bare "7", which would mean 7 ms) falls back to 7 days
+const SESSION_LENGTH = /^\d+[smhd]$/.test(process.env.JWT_EXPIRES_IN || '') ? process.env.JWT_EXPIRES_IN : '7d';
 
 // Public customer registration is disabled. Staff accounts are created internally.
 router.post('/register', asyncHandler(async (_req, res) => {
@@ -39,7 +43,7 @@ router.post('/login', asyncHandler(async (req, res) => {
     return res.status(403).json({ error: 'Staff access only' });
   }
 
-  const token = jwt.sign({ userId: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  const token = jwt.sign({ userId: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: SESSION_LENGTH });
 
   const { password: _, ...safeUser } = user;
   logger.info(`Admin logged in: ${user.email}`);
@@ -47,65 +51,26 @@ router.post('/login', asyncHandler(async (req, res) => {
 }));
 
 // GET /api/auth/me
-router.get('/me', asyncHandler(async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-  const token = authHeader.split(' ')[1];
-  const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-  const user = await prisma.user.findUnique({
-    where: { id: decoded.userId },
-    select: { id: true, name: true, email: true, phone: true, role: true, createdAt: true, isActive: true }
-  });
-
-  if (!user || !user.isActive) {
-    return res.status(401).json({ error: 'Invalid session' });
-  }
-  res.json({ user });
-}));
-
-// PUT /api/auth/profile
-router.put('/profile', asyncHandler(async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-  const token = authHeader.split(' ')[1];
-  const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-  const { name, phone } = req.body;
-  const user = await prisma.user.update({
-    where: { id: decoded.userId },
-    data: { name: name?.trim(), phone: phone?.trim() },
-    select: { id: true, name: true, email: true, phone: true, role: true }
-  });
-  res.json({ message: 'Profile updated', user });
-}));
+router.get('/me', authenticate, (req, res) => {
+  res.json({ user: req.user });
+});
 
 // POST /api/auth/change-password
-router.post('/change-password', asyncHandler(async (req, res) => {
-  const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
-  const token = authHeader.split(' ')[1];
-  const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
+router.post('/change-password', authenticate, asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body;
-  if (!currentPassword || !newPassword || newPassword.length < 6) {
-    return res.status(400).json({ error: 'Invalid password data' });
+  if (!currentPassword || typeof newPassword !== 'string' || newPassword.length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters' });
   }
 
-  const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
-  const match = await bcrypt.compare(currentPassword, user.password);
-  if (!match) {
+  const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { password: true } });
+  if (!(await bcrypt.compare(currentPassword, user.password))) {
     return res.status(400).json({ error: 'Current password is incorrect' });
   }
 
-  const hashed = await bcrypt.hash(newPassword, 12);
-  await prisma.user.update({ where: { id: decoded.userId }, data: { password: hashed } });
+  await prisma.user.update({
+    where: { id: req.user.id },
+    data: { password: await bcrypt.hash(newPassword, 12) },
+  });
   res.json({ message: 'Password changed successfully' });
 }));
 

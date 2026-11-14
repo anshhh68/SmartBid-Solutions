@@ -41,13 +41,4 @@ router.get('/pages/:slug', asyncHandler(async (req, res) => {
   res.json({ page });
 }));
 
-// GET /api/public/banners
-router.get('/banners', asyncHandler(async (req, res) => {
-  const banners = await prisma.banner.findMany({
-    where: { isActive: true },
-    orderBy: { order: 'asc' }
-  });
-  res.json({ banners });
-}));
-
 module.exports = router;

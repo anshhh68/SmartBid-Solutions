@@ -5,6 +5,11 @@ const ADMIN_EMAIL = process.env.ADMIN_NOTIFICATION_EMAIL || 'kinjalmodismartbids
 
 let transporter = null;
 
+// Enquiry fields come from the public contact form; never let them become HTML
+const escapeHtml = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+));
+
 function getTransporter() {
   if (transporter) return transporter;
 
@@ -52,25 +57,25 @@ async function sendEnquiryNotificationToAdmin(enquiry) {
           <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
             <tr>
               <td style="padding: 8px 0; color: #64748b; width: 140px;">Customer Name:</td>
-              <td style="padding: 8px 0; color: #0f172a; font-weight: bold;">${enquiry.name}</td>
+              <td style="padding: 8px 0; color: #0f172a; font-weight: bold;">${escapeHtml(enquiry.name)}</td>
             </tr>
             <tr>
               <td style="padding: 8px 0; color: #64748b;">Phone / Mobile:</td>
-              <td style="padding: 8px 0; color: #0f172a; font-weight: bold;"><a href="tel:${enquiry.phone || ''}" style="color: #2563eb; text-decoration: none;">${enquiry.phone || 'Not provided'}</a></td>
+              <td style="padding: 8px 0; color: #0f172a; font-weight: bold;"><a href="tel:${escapeHtml(enquiry.phone || '')}" style="color: #2563eb; text-decoration: none;">${escapeHtml(enquiry.phone || 'Not provided')}</a></td>
             </tr>
             <tr>
               <td style="padding: 8px 0; color: #64748b;">Email Address:</td>
-              <td style="padding: 8px 0; color: #0f172a; font-weight: bold;"><a href="mailto:${enquiry.email}" style="color: #2563eb; text-decoration: none;">${enquiry.email}</a></td>
+              <td style="padding: 8px 0; color: #0f172a; font-weight: bold;"><a href="mailto:${escapeHtml(enquiry.email)}" style="color: #2563eb; text-decoration: none;">${escapeHtml(enquiry.email)}</a></td>
             </tr>
             <tr>
               <td style="padding: 8px 0; color: #64748b;">Service / Subject:</td>
-              <td style="padding: 8px 0; color: #0f172a; font-weight: bold;">${enquiry.service || enquiry.subject || 'General'}</td>
+              <td style="padding: 8px 0; color: #0f172a; font-weight: bold;">${escapeHtml(enquiry.service || enquiry.subject || 'General')}</td>
             </tr>
           </table>
 
           <div style="margin-top: 20px; padding: 16px; background: #f8fafc; border-left: 4px solid #2563eb; border-radius: 4px;">
             <p style="margin: 0 0 6px; font-size: 12px; font-weight: bold; text-transform: uppercase; color: #64748b;">Message / Tender Requirement:</p>
-            <p style="margin: 0; font-size: 14px; color: #1e293b; line-height: 1.5; white-space: pre-wrap;">${enquiry.message}</p>
+            <p style="margin: 0; font-size: 14px; color: #1e293b; line-height: 1.5; white-space: pre-wrap;">${escapeHtml(enquiry.message)}</p>
           </div>
 
           <div style="margin-top: 24px; text-align: center;">

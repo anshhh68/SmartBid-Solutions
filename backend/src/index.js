@@ -3,7 +3,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
-const path = require('path');
 require('dotenv').config();
 
 const authRoutes = require('./routes/auth');
@@ -11,7 +10,6 @@ const tenderRoutes = require('./routes/tenders');
 const enquiryRoutes = require('./routes/enquiries');
 const serviceRoutes = require('./routes/services');
 const planRoutes = require('./routes/plans');
-const userRoutes = require('./routes/users');
 const adminRoutes = require('./routes/admin');
 const publicRoutes = require('./routes/public');
 const internalRoutes = require('./routes/internal');
@@ -51,17 +49,14 @@ const authLimiter = rateLimit({
 app.use('/api/', limiter);
 app.use('/api/auth/', authLimiter);
 
-// Body parsing
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Body parsing: only admin bulk import/capture needs big bodies; public routes keep the 100kb default
+app.use('/api/admin', express.json({ limit: '10mb' }));
+app.use(express.json());
 
 // Logging
 app.use(morgan('combined', {
   stream: { write: (msg) => logger.info(msg.trim()) }
 }));
-
-// Static file serving (uploads)
-app.use('/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // API Routes
 app.use('/api/auth', authRoutes);
@@ -69,7 +64,6 @@ app.use('/api/tenders', tenderRoutes);
 app.use('/api/enquiries', enquiryRoutes);
 app.use('/api/services', serviceRoutes);
 app.use('/api/plans', planRoutes);
-app.use('/api/users', userRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/public', publicRoutes);
 app.use('/api/internal', internalRoutes);
