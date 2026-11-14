@@ -24,6 +24,7 @@ Every new environment variable is optional. Leave one unset and the app behaves 
 | `CRON_TZ` | Timezone for the daily 06:00 sync, e.g. `Asia/Kolkata`. Unset = server time (UTC on most hosts) |
 | `DISABLE_INTERNAL_CRON=true` | Turns off the built-in cron (for hosts that sleep) |
 | `CRON_SECRET` | Enables `POST /api/internal/sync-tenders`, which requires the header `x-cron-secret`. Unset = 404 |
+| `PORTAL_PROXY_URL` + `PORTAL_PROXY_SECRET` | Tender sync reaches GeM/nProcure through the Supabase Edge Function `portal-proxy` (Mumbai). Needed when the API runs outside India, because both portals block foreign IPs. See "Tender portal proxy" below |
 | `CLOUDINARY_URL` (or `CLOUDINARY_CLOUD_NAME` + `CLOUDINARY_API_KEY` + `CLOUDINARY_API_SECRET`) | `POST /api/admin/upload` stores files on Cloudinary and returns an absolute `https://` URL |
 
 `POST /api/internal/sync-tenders` runs the sync synchronously and returns the same JSON as the sync itself (`{ success, synced, created, updated, closed, skipped, total, sources }`).
@@ -176,3 +177,20 @@ In the repo, open **Settings → Secrets and variables → Actions** and add:
 `.github/workflows/tender-sync.yml` runs daily at 06:00 IST (and can be started by hand from the Actions tab). It retries up to 3 times to wake a sleeping instance. Without the secrets, it logs a message and exits successfully.
 
 Optionally, point a free uptime monitor (e.g. UptimeRobot) at `https://api.smartbidsolutions.in/health` to cut cold starts.
+
+---
+
+## Tender portal proxy (Supabase Edge Function, Mumbai)
+
+GeM and nProcure refuse connections from outside India, so an API on Render (Frankfurt) cannot scrape them directly.
+`supabase/functions/portal-proxy` runs in the Supabase project's region (`ap-south-1`) and relays only requests to those two hosts.
+It costs about 25 invocations per sync, well within the free plan.
+
+1. **Deploy:** Supabase → Edge Functions → Deploy a new function → Via editor. Paste `supabase/functions/portal-proxy/index.ts`, name it `portal-proxy`, and deploy.
+   Then, in its **Settings**, turn **Verify JWT** off. The function checks its own secret instead.
+   (CLI alternative: `npx supabase functions deploy portal-proxy --no-verify-jwt --project-ref <ref>`.)
+2. **Create a shared secret:** `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+3. **Supabase:** Edge Functions → Secrets → add `PORTAL_PROXY_SECRET` = that value.
+4. **Render:** in Environment, add `PORTAL_PROXY_URL=https://<project-ref>.supabase.co/functions/v1/portal-proxy` and `PORTAL_PROXY_SECRET=<same value>`.
+
+Leave both unset when running from India or in local dev; the sync then connects directly.

@@ -3,6 +3,7 @@ const fs = require('fs');
 const https = require('https');
 const path = require('path');
 const tls = require('tls');
+const { proxyEnabled, proxyRequest } = require('./portalProxy');
 
 /**
  * nProcure (tender.nprocure.com) — Gujarat state e-procurement.
@@ -19,7 +20,11 @@ const CA = [
   fs.readFileSync(path.join(__dirname, 'certs/sectigo-public-server-ca-ov-r36.pem'), 'utf8'),
 ];
 
-function request(url, { method = 'GET', headers = {}, body } = {}) {
+async function request(url, { method = 'GET', headers = {}, body } = {}) {
+  if (proxyEnabled()) {
+    const res = await proxyRequest(url, { method, headers: { 'User-Agent': USER_AGENT, ...headers }, body });
+    return { status: res.status, headers: { 'set-cookie': res.setCookies }, text: res.text };
+  }
   return new Promise((resolve, reject) => {
     const req = https.request(url, {
       method,

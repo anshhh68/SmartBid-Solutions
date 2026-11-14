@@ -1,6 +1,7 @@
 const prisma = require('../utils/prisma');
 const { logger } = require('../utils/logger');
 const { fetchNprocureRows, NPROCURE_BASE } = require('./tenderSources/nprocure');
+const { proxyEnabled, proxyRequest } = require('./tenderSources/portalProxy');
 
 const GEM_BASE = 'https://bidplus.gem.gov.in';
 const GEM_SOURCE = 'GeM Portal';
@@ -73,21 +74,31 @@ async function withRetry(label, fn) {
 }
 
 /**
+ * GeM request, direct or via the Mumbai portal proxy. Returns { status, setCookies, text }.
+ */
+async function gemRequest(url, { method = 'GET', headers = {}, body } = {}) {
+  if (proxyEnabled()) return proxyRequest(url, { method, headers, body });
+  const res = await fetch(url, { method, headers, body, signal: AbortSignal.timeout(REQUEST_TIMEOUT) });
+  return { status: res.status, setCookies: res.headers.getSetCookie?.() || [], text: await res.text() };
+}
+
+const isOk = (status) => status >= 200 && status < 300;
+
+/**
  * Open a GeM session: returns cookie header + CSRF token
  */
 async function openGemSession() {
-  const res = await fetch(`${GEM_BASE}/all-bids`, {
+  const res = await gemRequest(`${GEM_BASE}/all-bids`, {
     headers: {
       'User-Agent': USER_AGENT,
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
     },
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT)
   });
-  if (!res.ok) throw new Error(`GeM portal responded with HTTP ${res.status}`);
+  if (!isOk(res.status)) throw new Error(`GeM portal responded with HTTP ${res.status}`);
 
-  const html = await res.text();
+  const html = res.text;
   // Only send back name=value pairs, not cookie attributes (path, domain, expires...)
-  const cookies = (res.headers.getSetCookie?.() || [])
+  const cookies = res.setCookies
     .map(c => c.split(';')[0])
     .join('; ');
 
@@ -115,7 +126,7 @@ async function fetchGemPage(session, page) {
   body.append('payload', JSON.stringify(payload));
   body.append('csrf_bd_gem_nk', session.csrfToken);
 
-  const res = await fetch(`${GEM_BASE}/all-bids-data`, {
+  const res = await gemRequest(`${GEM_BASE}/all-bids-data`, {
     method: 'POST',
     headers: {
       'User-Agent': USER_AGENT,
@@ -126,11 +137,10 @@ async function fetchGemPage(session, page) {
       'Cookie': session.cookies,
     },
     body: body.toString(),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT)
   });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  if (!isOk(res.status)) throw new Error(`HTTP ${res.status}`);
 
-  const data = await res.json();
+  const data = JSON.parse(res.text);
   if (data?.code !== 200) throw new Error(`GeM API returned code ${data?.code}: ${data?.message || 'unknown'}`);
   return {
     docs: data.response?.response?.docs || [],
