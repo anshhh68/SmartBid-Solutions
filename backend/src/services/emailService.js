@@ -1,7 +1,7 @@
 const nodemailer = require('nodemailer');
 const { logger } = require('../utils/logger');
 
-const ADMIN_EMAIL = process.env.ADMIN_NOTIFICATION_EMAIL || 'kinjalmodismartbidsolutions@gmail.com';
+const ADMIN_EMAIL = process.env.ADMIN_NOTIFICATION_EMAIL || 'kinjal.modismartbidsolutions@gmail.com';
 
 let transporter = null;
 

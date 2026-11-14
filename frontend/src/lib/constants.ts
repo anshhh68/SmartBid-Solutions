@@ -19,7 +19,7 @@ export const PRIMARY_PHONE = '+91 70162 35257';
 export const ALTERNATE_PHONE = '+91 85117 22588';
 export const PHONES = [PRIMARY_PHONE, ALTERNATE_PHONE];
 export const WHATSAPP_URL = 'https://wa.me/917016235257';
-export const EMAILS = ['kinjalmodismartbidsolutions@gmail.com', 'kinjalsmartbidsolutions@outlook.com'];
+export const EMAILS = ['kinjal.modismartbidsolutions@gmail.com', 'kinjalsmartbidsolutions@outlook.com'];
 export const ADDRESS = 'Vaibhav Laxmi Complex, Shop No. 29, 4th Floor, Outside Delhi Darwaja, Ahmedabad, Gujarat';
 
 export function formatINR(val?: number | null) {

@@ -310,7 +310,7 @@ async function main() {
   const settings = [
     { key: 'site_name', value: 'SmartBid Solutions' },
     { key: 'site_tagline', value: 'Bid Today. Grow Tomorrow.' },
-    { key: 'contact_email', value: 'kinjalmodismartbidsolutions@gmail.com' },
+    { key: 'contact_email', value: 'kinjal.modismartbidsolutions@gmail.com' },
     { key: 'contact_phone', value: '+91 70162 35257' },
     { key: 'contact_phone2', value: '+91 85117 22588' },
     { key: 'contact_address', value: 'Ahmedabad, Gujarat, India' },
@@ -371,7 +371,7 @@ We implement appropriate technical and organizational security measures to prote
 
 ## Contact Us
 
-If you have questions about this Privacy Policy, please contact us at kinjalmodismartbidsolutions@gmail.com`,
+If you have questions about this Privacy Policy, please contact us at kinjal.modismartbidsolutions@gmail.com`,
       isPublished: true,
     },
     {
@@ -403,7 +403,7 @@ SmartBid Solutions shall not be liable for any indirect, incidental, special, or
 
 ## Contact
 
-For any questions regarding these terms, contact us at kinjalmodismartbidsolutions@gmail.com`,
+For any questions regarding these terms, contact us at kinjal.modismartbidsolutions@gmail.com`,
       isPublished: true,
     },
   ];

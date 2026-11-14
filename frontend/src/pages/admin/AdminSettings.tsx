@@ -12,7 +12,7 @@ export default function AdminSettings() {
 
   const [settings, setSettings] = useState<Record<string, string>>({
     site_title: 'SmartBid Solutions — Tender Bidding & GeM Portal Services',
-    contact_email: 'kinjalmodismartbidsolutions@gmail.com',
+    contact_email: 'kinjal.modismartbidsolutions@gmail.com',
     contact_phone: '+91 70162 35257',
     contact_phone2: '+91 85117 22588',
     whatsapp_number: '917016235257',
