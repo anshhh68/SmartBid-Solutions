@@ -183,7 +183,7 @@ Optionally, point a free uptime monitor (e.g. UptimeRobot) at `https://api.smart
 ## Tender portal proxy (Supabase Edge Function, Mumbai)
 
 GeM and nProcure refuse connections from outside India, so an API on Render (Frankfurt) cannot scrape them directly.
-`supabase/functions/portal-proxy` runs in the Supabase project's region (`ap-south-1`) and relays only requests to those two hosts.
+`supabase/functions/portal-proxy` relays requests to those two hosts only. The backend calls it with `x-region: ap-south-1`, because Supabase otherwise runs functions in the region nearest the caller (Europe for Render).
 It costs about 25 invocations per sync, well within the free plan.
 
 1. **Deploy:** Supabase → Edge Functions → Deploy a new function → Via editor. Paste `supabase/functions/portal-proxy/index.ts`, name it `portal-proxy`, and deploy.

@@ -1,5 +1,6 @@
 // Relays the backend tender sync to Indian government portals, which block non-Indian IPs.
-// Runs in this Supabase project's region (ap-south-1, Mumbai). Deploy with JWT verification OFF;
+// Callers must send x-region: ap-south-1 (Mumbai); Supabase otherwise runs it nearest the caller.
+// Deploy with JWT verification OFF;
 // callers authenticate with the x-proxy-secret header (Edge Function secret PORTAL_PROXY_SECRET).
 const ALLOWED_HOSTS = new Set(["bidplus.gem.gov.in", "tender.nprocure.com"]);
 

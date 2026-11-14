@@ -9,7 +9,12 @@ const proxyEnabled = () => Boolean(process.env.PORTAL_PROXY_URL);
 async function proxyRequest(url, { method = 'GET', headers = {}, body } = {}) {
   const res = await fetch(process.env.PORTAL_PROXY_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-proxy-secret': (process.env.PORTAL_PROXY_SECRET || '').trim() },
+    headers: {
+      'Content-Type': 'application/json',
+      'x-proxy-secret': (process.env.PORTAL_PROXY_SECRET || '').trim(),
+      // Supabase runs functions in the region nearest the caller (Europe for Render); force Mumbai
+      'x-region': 'ap-south-1',
+    },
     body: JSON.stringify({ url, method, headers, body }),
     signal: AbortSignal.timeout(45000),
   });
