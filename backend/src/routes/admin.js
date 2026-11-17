@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const prisma = require('../utils/prisma');
+const bcrypt = require('bcryptjs');
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { asyncHandler } = require('../middleware/errorHandler');
 const { syncLiveTendersExclusive } = require('../services/tenderSyncService');
@@ -366,6 +367,39 @@ router.get('/users', asyncHandler(async (req, res) => {
   ]);
 
   res.json({ users, total, page: pageNum, totalPages: Math.ceil(total / limitNum) });
+}));
+
+// Public registration is closed, so staff accounts are created here. Only ADMIN accounts can log in.
+router.post('/users', asyncHandler(async (req, res) => {
+  const { name, email, phone, password, role = 'ADMIN' } = req.body;
+  if (!name?.trim() || !email?.trim()) {
+    return res.status(400).json({ error: 'Name and email are required' });
+  }
+  if (typeof password !== 'string' || password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  }
+  if (!['ADMIN', 'USER'].includes(role)) {
+    return res.status(400).json({ error: 'Role must be ADMIN or USER' });
+  }
+  const normalizedEmail = email.trim().toLowerCase();
+  if (await prisma.user.findUnique({ where: { email: normalizedEmail }, select: { id: true } })) {
+    return res.status(409).json({ error: 'A user with this email already exists' });
+  }
+
+  const user = await prisma.user.create({
+    data: {
+      name: name.trim(),
+      email: normalizedEmail,
+      phone: phone?.trim() || null,
+      role,
+      password: await bcrypt.hash(password, 12),
+    },
+    select: { id: true, name: true, email: true, phone: true, role: true, isActive: true, createdAt: true },
+  });
+  await prisma.auditLog.create({
+    data: { userId: req.user.id, action: 'CREATE', entity: 'User', entityId: user.id }
+  });
+  res.status(201).json({ user });
 }));
 
 router.patch('/users/:id/status', asyncHandler(async (req, res) => {

@@ -3,16 +3,35 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import toast from 'react-hot-toast';
 import {
-  Users, Search, Shield, User, CheckCircle2,
-  XCircle, ChevronLeft, ChevronRight, Phone, Mail
+  Users, Search, Shield, CheckCircle2,
+  XCircle, ChevronLeft, ChevronRight, Phone, Mail, Plus
 } from 'lucide-react';
+
+const EMPTY_FORM = { name: '', email: '', phone: '', password: '', role: 'ADMIN' };
 
 export default function AdminUsers() {
   const [search, setSearch] = useState('');
   const [role, setRole] = useState('');
   const [page, setPage] = useState(1);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [form, setForm] = useState(EMPTY_FORM);
 
   const queryClient = useQueryClient();
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setForm(EMPTY_FORM);
+  };
+
+  const createMutation = useMutation({
+    mutationFn: async (payload: typeof EMPTY_FORM) => (await api.post('/admin/users', payload)).data,
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['admin-users'] });
+      toast.success(`User ${data.user.name} created`);
+      closeModal();
+    },
+    onError: (err: any) => toast.error(err.response?.data?.error || 'Failed to create user'),
+  });
 
   const { data, isLoading } = useQuery({
     queryKey: ['admin-users', search, role, page],
@@ -41,14 +60,23 @@ export default function AdminUsers() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
-          <Users className="w-6 h-6 text-blue-600" />
-          User Accounts
-        </h1>
-        <p className="text-sm text-slate-500 mt-1">
-          Review registered bidders, administrators, and monitor platform engagement.
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+            <Users className="w-6 h-6 text-blue-600" />
+            User Accounts
+          </h1>
+          <p className="text-sm text-slate-500 mt-1">
+            Review registered bidders, administrators, and monitor platform engagement.
+          </p>
+        </div>
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5"
+        >
+          <Plus className="w-4 h-4" />
+          Add User
+        </button>
       </div>
 
       {/* Filter */}
@@ -195,6 +223,71 @@ export default function AdminUsers() {
           </div>
         </div>
       </div>
+
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-100 animate-in fade-in zoom-in-95">
+            <h3 className="text-lg font-bold text-slate-900">Add New User</h3>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                createMutation.mutate(form);
+              }}
+              className="mt-4 space-y-4"
+            >
+              {([
+                ['name', 'Full name', 'text', true],
+                ['email', 'Email', 'email', true],
+                ['phone', 'Phone (optional)', 'tel', false],
+                ['password', 'Password (min 8 characters)', 'password', true],
+              ] as const).map(([key, label, type, required]) => (
+                <div key={key}>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">{label}</label>
+                  <input
+                    type={type}
+                    required={required}
+                    minLength={key === 'password' ? 8 : undefined}
+                    autoComplete={key === 'password' ? 'new-password' : 'off'}
+                    value={form[key]}
+                    onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              ))}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Role</label>
+                <select
+                  value={form.role}
+                  onChange={(e) => setForm({ ...form, role: e.target.value })}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                >
+                  <option value="ADMIN">ADMIN (staff, can log in to admin)</option>
+                  <option value="USER">USER (cannot log in)</option>
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={createMutation.isPending}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold disabled:opacity-50"
+                >
+                  {createMutation.isPending ? 'Creating...' : 'Create User'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
