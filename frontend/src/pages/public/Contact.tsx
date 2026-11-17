@@ -6,8 +6,8 @@ import { z } from 'zod';
 import api from '../../lib/api';
 import toast from 'react-hot-toast';
 import { Phone, Mail, MapPin, Clock, MessageCircle, MessageSquare, CheckCircle } from 'lucide-react';
-import { EMAILS } from '../../lib/constants';
 import FeedbackForm from '../../components/forms/FeedbackForm';
+import { useContactEmail } from '../../hooks/useContactEmail';
 
 const schema = z.object({
   name: z.string().min(2, 'Name is required'),
@@ -31,6 +31,7 @@ const SERVICES = [
 ];
 
 export default function Contact() {
+  const email = useContactEmail();
   const [submitted, setSubmitted] = useState(false);
   const { hash } = useLocation();
 
@@ -93,13 +94,13 @@ export default function Contact() {
                   </div>
                 </div>
 
-                <a href={`mailto:${EMAILS[0]}`} className="flex items-start gap-3 group">
+                <a href={`mailto:${email}`} className="flex items-start gap-3 group">
                   <div className="w-10 h-10 bg-[#0A2342]/10 text-stamp rounded-xl flex items-center justify-center flex-shrink-0 group-hover:bg-stamp group-hover:text-paper transition-all">
                     <Mail className="w-4 h-4" />
                   </div>
                   <div>
                     <p className="text-xs text-ink-soft mb-0.5">Email</p>
-                    <p className="text-sm font-semibold text-ink group-hover:text-stamp transition-colors break-all">{EMAILS[0]}</p>
+                    <p className="text-sm font-semibold text-ink group-hover:text-stamp transition-colors break-all">{email}</p>
                   </div>
                 </a>
 

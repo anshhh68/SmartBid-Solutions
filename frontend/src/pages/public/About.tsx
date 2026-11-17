@@ -1,8 +1,9 @@
 import { CheckCircle, Users, Target, Award, MapPin, Phone, Mail } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { EMAILS } from '../../lib/constants';
+import { useContactEmail } from '../../hooks/useContactEmail';
 
 export default function About() {
+  const email = useContactEmail();
   return (
     <div className="bg-paper min-h-screen">
       <div className="border-b border-rule bg-ink py-16 text-paper">
@@ -112,8 +113,8 @@ export default function About() {
             <a href="tel:+917016235257" className="flex items-center gap-2 text-paper/80 hover:text-ochre transition-colors">
               <Phone className="w-4 h-4 text-ochre" /> +91 70162 35257
             </a>
-            <a href={`mailto:${EMAILS[0]}`} className="flex items-center gap-2 text-paper/80 hover:text-ochre transition-colors">
-              <Mail className="w-4 h-4 text-ochre" /> {EMAILS[0]}
+            <a href={`mailto:${email}`} className="flex items-center gap-2 text-paper/80 hover:text-ochre transition-colors">
+              <Mail className="w-4 h-4 text-ochre" /> {email}
             </a>
             <div className="flex items-center gap-2 text-paper/80">
               <MapPin className="w-4 h-4 text-ochre" /> All India

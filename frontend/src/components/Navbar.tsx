@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { Link, NavLink } from 'react-router-dom';
 import { Menu, X, Phone } from 'lucide-react';
-import { EMAILS, PHONES, WHATSAPP_URL } from '../lib/constants';
+import { PHONES, WHATSAPP_URL } from '../lib/constants';
+import { useContactEmail } from '../hooks/useContactEmail';
 
 const navLinks = [
   { to: '/', label: 'Home' },
@@ -12,6 +13,7 @@ const navLinks = [
 ];
 
 export default function Navbar() {
+  const email = useContactEmail();
   const [open, setOpen] = useState(false);
 
   return (
@@ -21,7 +23,7 @@ export default function Navbar() {
           <p>Serving All India · 24/7 Dedicated Support & Bid Advisory</p>
           <div className="flex items-center gap-5">
             <a href={`tel:${PHONES[0].replace(/\s/g, '')}`} className="hover:text-paper">{PHONES[0]}</a>
-            <a href={`mailto:${EMAILS[0]}`} className="hover:text-paper">{EMAILS[0]}</a>
+            <a href={`mailto:${email}`} className="hover:text-paper">{email}</a>
           </div>
         </div>
       </div>

@@ -1,7 +1,9 @@
 import { Link } from 'react-router-dom';
-import { ADDRESS, EMAILS, PHONES, WHATSAPP_URL } from '../lib/constants';
+import { ADDRESS, PHONES, WHATSAPP_URL } from '../lib/constants';
+import { useContactEmail } from '../hooks/useContactEmail';
 
 const Footer = () => {
+  const email = useContactEmail();
   const year = new Date().getFullYear();
 
   const services = [
@@ -70,7 +72,7 @@ const Footer = () => {
               </a>
             </p>
           </div>
-          <p className="mt-1 break-all text-sm">{EMAILS[0]}</p>
+          <p className="mt-1 break-all text-sm">{email}</p>
         </div>
       </div>
       <div className="border-t border-white/10 px-4 py-4 text-center text-[11px] tracking-wide text-paper/50">

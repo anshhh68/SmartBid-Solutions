@@ -42,6 +42,7 @@ export default function AdminSettings() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['admin-settings'] });
+      queryClient.invalidateQueries({ queryKey: ['site-settings'] }); // public site shows the new values right away
       toast.success('Site settings saved successfully');
     },
     onError: () => toast.error('Failed to update settings'),
